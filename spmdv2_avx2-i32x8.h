@@ -4,18 +4,19 @@
 
 #include <cstdint>
 #include <cassert>
+#include <utility>
 
 struct spmd_kernel
 {
     struct exec_t
     {
         __m256 _mask;
-    };
 
-    exec_t and(const exec_t& a, const exec_t& b)
-    {
-        return exec_t{ _mm256_and_ps(a._mask, b._mask) };
-    }
+        exec_t operator&(const exec_t& b)
+        {
+            return exec_t{ _mm256_and_ps(_mask, b._mask) };
+        }
+    };
 
     exec_t andnot(const exec_t& a, const exec_t& b)
     {
@@ -41,15 +42,24 @@ struct spmd_kernel
             : _value(v)
         { }
 
+        vfloat(float value)
+            : _value(_mm256_set1_ps(value))
+        { }
+
+        vfloat operator*(const vfloat& b)
+        {
+            return vfloat{ _mm256_mul_ps(_value, b._value) };
+        }
+
+        vbool operator<(float b)
+        {
+            return vbool{ _mm256_cmp_ps(_value, _mm256_set1_ps(b), _CMP_LT_OQ) };
+        }
+
     private:
         // assignment must be masked
         vfloat& operator=(const vfloat&);
     };
-
-    vfloat mul(const vfloat& a, const vfloat& b)
-    {
-        return vfloat{ _mm256_mul_ps(a._value, b._value) };
-    }
 
     vfloat sqrt(const vfloat& v)
     {
@@ -62,22 +72,17 @@ struct spmd_kernel
         return dst;
     }
 
-    vbool less(const vfloat& a, float b)
-    {
-        return vbool{ _mm256_cmp_ps(a._value, _mm256_set1_ps(b), _CMP_LT_OQ) };
-    }
-
     // reference to a vfloat stored linearly in memory
-    struct vfloat_ref
+    struct vfloat_lref
     {
         float* _value;
 
     private:
         // ref-ref assignment must be masked both ways
-        vfloat_ref& operator=(const vfloat_ref&);
+        vfloat_lref& operator=(const vfloat_lref&);
     };
 
-    vfloat_ref& store(vfloat_ref& dst, const vfloat& src)
+    vfloat_lref& store(vfloat_lref& dst, const vfloat& src)
     {
         int mask = _mm256_movemask_ps(exec._mask);
         if (mask == 0b11111111)
@@ -93,7 +98,7 @@ struct spmd_kernel
         return dst;
     }
 
-    vfloat load(const vfloat_ref& src)
+    vfloat load(const vfloat_lref& src)
     {
         int mask = _mm256_movemask_ps(exec._mask);
         if (mask == 0b11111111)
@@ -116,9 +121,9 @@ struct spmd_kernel
             : _value(value)
         { }
 
-        vfloat_ref operator[](float* ptr) const
+        vfloat_lref operator[](float* ptr) const
         {
-            return vfloat_ref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
+            return vfloat_lref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
         }
 
     private:
@@ -136,7 +141,7 @@ struct spmd_kernel
         exec_t old_exec = exec;
 
         // apply "if" mask
-        exec = and(exec, exec_t{ cond._value });
+        exec = exec & exec_t{ cond._value };
 
         // "all off" optimization
         int mask = _mm256_movemask_ps(exec._mask);
@@ -156,7 +161,7 @@ struct spmd_kernel
         exec_t old_exec = exec;
 
         // apply "if" mask
-        exec = and(exec, exec_t{ cond._value });
+        exec = exec & exec_t{ cond._value };
 
         // "all off" optimization
         int mask = _mm256_movemask_ps(exec._mask);
@@ -205,7 +210,7 @@ struct spmd_kernel
             exec_t old_exec = exec;
 
             // apply mask for partial loop
-            exec = and(exec, exec_t{ _mm256_castsi256_ps(_mm256_cmpgt_epi32(_mm256_set1_epi32(numPartialLoops), programIndex._value)) });
+            exec = exec & exec_t{ _mm256_castsi256_ps(_mm256_cmpgt_epi32(_mm256_set1_epi32(numPartialLoops), programIndex._value)) };
 
             // do the partial loop
             foreachBody(lint{ loopIndex });
@@ -214,4 +219,34 @@ struct spmd_kernel
             exec = old_exec;
         }
     }
+
+    template<class SPMDKernel, class... Args>
+    auto spmd_call(Args&&... args)
+    {
+        SPMDKernel kernel;
+        kernel.exec = exec;
+        return kernel._call(std::forward<Args>(args)...);
+    }
 };
+
+spmd_kernel::lint operator+(int a, const spmd_kernel::lint& b)
+{
+    return spmd_kernel::lint{ _mm256_add_epi32(_mm256_set1_epi32(a), b._value) };
+}
+
+spmd_kernel::vfloat operator+(float a, const spmd_kernel::vfloat& b)
+{
+    return spmd_kernel::vfloat{ _mm256_add_ps(_mm256_set1_ps(a), b._value) };
+}
+
+spmd_kernel::vfloat operator*(const spmd_kernel::lint& a, float b)
+{
+    return spmd_kernel::vfloat{ _mm256_mul_ps(_mm256_cvtepi32_ps(a._value), _mm256_set1_ps(b)) };
+}
+
+template<class SPMDKernel, class... Args>
+auto spmd_call(Args&&... args)
+{
+    SPMDKernel kernel;
+    return kernel._call(std::forward<Args>(args)...);
+}

@@ -4,12 +4,6 @@
 
 #include <cassert>
 
-struct exec_t;
-struct vbool;
-struct vfloat;
-struct vfloat_lref;
-struct lint;
-
 struct exec_t
 {
     __m256 _mask;
@@ -59,12 +53,12 @@ vbool operator<(const vfloat& a, float b)
 }
 
 // reference to a vfloat stored linearly in memory
-struct vfloat_ref
+struct vfloat_lref
 {
     float* _value;
 
     // scatter
-    vfloat_ref& operator=(const vfloat& other)
+    vfloat_lref& operator=(const vfloat& other)
     {
         int mask = _mm256_movemask_ps(exec._mask);
         if (mask == 0b11111111)
@@ -101,9 +95,9 @@ struct lint
 {
     __m256i _value;
 
-    vfloat_ref operator[](float* ptr) const
+    vfloat_lref operator[](float* ptr) const
     {
-        return vfloat_ref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
+        return vfloat_lref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
     }
 };
 

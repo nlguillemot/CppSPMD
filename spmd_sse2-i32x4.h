@@ -4,11 +4,7 @@
 
 #include <cassert>
 
-struct exec_t;
-struct vbool;
-struct vfloat;
-struct vfloat_lref;
-struct lint;
+struct vint;
 
 struct exec_t
 {
@@ -22,7 +18,7 @@ exec_t operator&(const exec_t& a, const exec_t& b)
 
 exec_t operator~(const exec_t& a)
 {
-    return exec_t{ _mm_cmpeq_ps(a._mask, _mm_setzero_ps()) };
+    return exec_t{ _mm_andnot_ps(a._mask, _mm_cmpeq_ps(_mm_setzero_ps(), _mm_setzero_ps())) };
 }
 
 static exec_t exec = exec_t{ _mm_cmpeq_ps(_mm_setzero_ps(), _mm_setzero_ps()) };
@@ -30,15 +26,41 @@ static exec_t exec = exec_t{ _mm_cmpeq_ps(_mm_setzero_ps(), _mm_setzero_ps()) };
 struct vbool
 {
     __m128 _value;
+    
+    vbool& operator=(const vbool& other)
+    {
+        _value = _mm_or_ps(_mm_and_ps(exec._mask, other._value), _mm_andnot_ps(exec._mask, _value));
+        return *this;
+    }
 };
 
 struct vfloat
 {
     __m128 _value;
 
+    explicit vfloat(const __m128& value)
+        : _value(value)
+    { }
+
+    vfloat(float value)
+        : _value(_mm_set1_ps(value))
+    { }
+
     vfloat& operator=(const vfloat& other)
     {
         _value = _mm_or_ps(_mm_and_ps(exec._mask, other._value), _mm_andnot_ps(exec._mask, _value));
+        return *this;
+    }
+
+    vfloat& operator+=(const vfloat& other)
+    {
+        _value = _mm_or_ps(_mm_and_ps(exec._mask, _mm_add_ps(_value, other._value)), _mm_andnot_ps(exec._mask, _value));
+        return *this;
+    }
+
+    vfloat& operator*=(float other)
+    {
+        _value = _mm_or_ps(_mm_and_ps(exec._mask, _mm_mul_ps(_value, _mm_set1_ps(other))), _mm_andnot_ps(exec._mask, _value));
         return *this;
     }
 };
@@ -48,9 +70,68 @@ vfloat operator*(const vfloat& a, const vfloat& b)
     return vfloat{ _mm_mul_ps(a._value, b._value) };
 }
 
+vfloat operator/(const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm_div_ps(a._value, b._value) };
+}
+
+vfloat operator+(const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm_add_ps(a._value, b._value) };
+}
+
+vfloat operator+(float a, const vfloat& b)
+{
+    return vfloat{ _mm_add_ps(_mm_set1_ps(a), b._value) };
+}
+
+vfloat operator+(const vfloat& a, float b)
+{
+    return vfloat{ _mm_add_ps(a._value, _mm_set1_ps(b)) };
+}
+
+vfloat operator-(const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm_sub_ps(a._value, b._value) };
+}
+
+vfloat operator-(const vfloat& a, int b)
+{
+    return vfloat{ _mm_sub_ps(a._value, _mm_set1_ps((float)b)) };
+}
+
+vfloat operator-(float a, const vfloat& b)
+{
+    return vfloat{ _mm_sub_ps(_mm_set1_ps(a), b._value) };
+}
+
+vfloat operator-(const vfloat& a)
+{
+    return vfloat{ _mm_xor_ps(a._value, _mm_set1_ps(-0.0)) };
+}
+
+vfloat abs(const vfloat& a)
+{
+    return vfloat{ _mm_andnot_ps(_mm_set1_ps(-0.0f), a._value) };
+}
+
 vfloat sqrt(const vfloat& a)
 {
     return vfloat{ _mm_sqrt_ps(a._value) };
+}
+
+vfloat floor(const vfloat& a)
+{
+    __m128 fval = _mm_cvtepi32_ps(_mm_cvtps_epi32(a._value));
+    return vfloat{ _mm_sub_ps(fval, _mm_and_ps(_mm_cmplt_ps(a._value, fval), _mm_set1_ps(1.0f))) };
+}
+
+vfloat clamp(const vfloat& v, float a, float b)
+{
+    __m128 lomask = _mm_cmplt_ps(v._value, _mm_set1_ps(a));
+    __m128 himask = _mm_cmpgt_ps(v._value, _mm_set1_ps(b));
+    __m128 okmask = _mm_andnot_ps(_mm_or_ps(lomask, himask), _mm_cmpeq_ps(_mm_setzero_ps(), _mm_setzero_ps()));
+    return vfloat{ _mm_or_ps(_mm_and_ps(okmask, v._value), _mm_or_ps(_mm_and_ps(lomask, _mm_set1_ps(a)), _mm_and_ps(himask, _mm_set1_ps(b)))) };
 }
 
 vbool operator<(const vfloat& a, float b)
@@ -58,13 +139,155 @@ vbool operator<(const vfloat& a, float b)
     return vbool{ _mm_cmplt_ps(a._value, _mm_set1_ps(b)) };
 }
 
+vfloat spmd_ternary(const vbool& cond, const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm_or_ps(_mm_and_ps(cond._value, a._value), _mm_andnot_ps(cond._value, b._value)) };
+}
+
+// reference to a vint stored randomly in memory
+struct vint_vref
+{
+    int* _value;
+    __m128i _vindex;
+
+    // scatter
+    vint_vref& operator=(const vint& other);
+
+    // gather
+    operator vint() const;
+};
+
+struct vint
+{
+    __m128i _value;
+
+    explicit vint(const __m128i value)
+        : _value(value)
+    { }
+
+    vint(const vfloat& other)
+        : _value(_mm_cvtps_epi32(other._value))
+    { }
+
+    vint& operator=(const vint& other)
+    {
+        _value = _mm_castps_si128(
+            _mm_or_ps(
+                _mm_and_ps(
+                    exec._mask, 
+                    _mm_castsi128_ps(other._value)),
+                _mm_andnot_ps(
+                    exec._mask, 
+                    _mm_castsi128_ps(_value))));
+        return *this;
+    }
+
+    vint& operator&=(int other)
+    {
+        _value = _mm_castps_si128(
+            _mm_or_ps(
+                _mm_and_ps(
+                    exec._mask, 
+                    _mm_castsi128_ps(_mm_and_si128(_value, _mm_set1_epi32(other)))),
+                _mm_andnot_ps(
+                    exec._mask, 
+                    _mm_castsi128_ps(_value))));
+        return *this;
+    }
+
+    operator vbool() const
+    {
+        return vbool{ _mm_castsi128_ps(
+            _mm_andnot_si128(
+                _mm_cmpeq_epi32(_value, _mm_setzero_si128()),
+                _mm_cmpeq_epi32(_mm_setzero_si128(), _mm_setzero_si128()))) };
+    }
+
+    vint_vref operator[](int* ptr) const
+    {
+        return vint_vref{ ptr, _value };
+    }
+};
+
+// scatter
+vint_vref& vint_vref::operator=(const vint& other)
+{
+    __declspec(align(16)) int vindex[4];
+    _mm_store_si128((__m128i*)vindex, _vindex);
+
+    __declspec(align(16)) int stored[4];
+    _mm_store_si128((__m128i*)stored, other._value);
+
+    int mask = _mm_movemask_ps(exec._mask);
+    for (int i = 0; i < 4; i++)
+    {
+        if (mask & (1 << i))
+            _value[vindex[i]] = stored[i];
+    }
+
+    return *this;
+}
+
+// gather
+vint_vref::operator vint() const
+{
+    __declspec(align(16)) int vindex[4];
+    _mm_store_si128((__m128i*)vindex, _vindex);
+
+    __declspec(align(16)) int loaded[4];
+
+    int mask = _mm_movemask_ps(exec._mask);
+    for (int i = 0; i < 4; i++)
+    {
+        if (mask & (1 << i))
+            loaded[i] = _value[vindex[i]];
+    }
+
+    return vint{ _mm_load_si128((__m128i*)loaded) };
+}
+
+vint operator+(const vint& a, const vint& b)
+{
+    return vint{ _mm_add_epi32(a._value, b._value) };
+}
+
+vint operator+(const vint& a, int b)
+{
+    return vint{ _mm_add_epi32(a._value, _mm_set1_epi32(b)) };
+}
+
+vfloat operator-(const vfloat& a, const vint& b)
+{
+    return vfloat{ _mm_sub_ps(a._value, _mm_cvtepi32_ps(b._value)) };
+}
+
+vint operator&(const vint& a, int b)
+{
+    return vint{ _mm_and_si128(a._value, _mm_set1_epi32(b)) };
+}
+
+vbool operator<(const vint& a, int b)
+{
+    return vbool{ _mm_castsi128_ps(_mm_cmplt_epi32(a._value, _mm_set1_epi32(b))) };
+}
+
+vbool operator==(const vint& a, int b)
+{
+    return vbool{ _mm_castsi128_ps(_mm_cmpeq_epi32(a._value, _mm_set1_epi32(b))) };
+}
+
+vbool operator||(const vbool& a, const vbool& b)
+{
+    return vbool{ _mm_or_ps(a._value, b._value) };
+}
+
 // reference to a vfloat stored linearly in memory
-struct vfloat_ref
+struct vfloat_lref
 {
     float* _value;
 
     // scatter
-    vfloat_ref& operator=(const vfloat& other)
+    vfloat_lref& operator=(const vfloat& other)
     {
         int mask = _mm_movemask_ps(exec._mask);
         if (mask == 0b1111)
@@ -115,9 +338,9 @@ struct lint
 {
     __m128i _value;
 
-    vfloat_ref operator[](float* ptr) const
+    vfloat_lref operator[](float* ptr) const
     {
-        return vfloat_ref{ ptr + _mm_cvtsi128_si32(_value) };
+        return vfloat_lref{ ptr + _mm_cvtsi128_si32(_value) };
     }
 };
 
@@ -129,6 +352,11 @@ lint operator+(const lint& a, int b)
 lint operator+(int a, const lint& b)
 {
     return lint{ _mm_add_epi32(_mm_set1_epi32(a), b._value) };
+}
+
+vfloat operator*(const lint& a, float b)
+{
+    return vfloat{ _mm_mul_ps(_mm_cvtepi32_ps(a._value), _mm_set1_ps(b)) };
 }
 
 static const lint programIndex = lint{ _mm_set_epi32(3,2,1,0) };
