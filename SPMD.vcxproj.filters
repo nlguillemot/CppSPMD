@@ -8,4 +8,7 @@
     <ClInclude Include="spmd_avx2-i32x8.h" />
     <ClInclude Include="spmdv2_avx2-i32x8.h" />
   </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="noise.ispc" />
+  </ItemGroup>
 </Project>

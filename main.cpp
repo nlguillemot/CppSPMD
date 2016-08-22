@@ -4,6 +4,7 @@
 //#define SCALAR
 //#define V1
 #define V2
+//#define ISPC
 
 // which test to run
 //#define SIMPLE
@@ -415,8 +416,8 @@ struct Floor2Int : spmd_kernel
 struct Grad : spmd_kernel
 {
     vfloat _call(const vint& x, const vint& y, const vint& z, const vfloat& dx, const vfloat& dy, const vfloat& dz) {
-        vint h = ((x[NoisePerm] + y)[NoisePerm] + z)[NoisePerm];
-        h &= 15;
+        vint h = load((load((load(x[NoisePerm]) + y)[NoisePerm]) + z)[NoisePerm]);
+        store(h, h & 15);
         vfloat u = spmd_ternary(h < 8 || h == 12 || h == 13, dx, dy);
         vfloat v = spmd_ternary(h < 4 || h == 12 || h == 13, dy, dz);
         return spmd_ternary(h & 1, -u, u) + spmd_ternary(h & 2, -v, v);
@@ -450,9 +451,9 @@ struct Noise : spmd_kernel
         vfloat dx = x - ix, dy = y - iy, dz = z - iz;
 
         // Compute gradient weights
-        ix &= (NOISE_PERM_SIZE - 1);
-        iy &= (NOISE_PERM_SIZE - 1);
-        iz &= (NOISE_PERM_SIZE - 1);
+        store(ix, ix & (NOISE_PERM_SIZE - 1));
+        store(iy, iy & (NOISE_PERM_SIZE - 1));
+        store(iz, iz & (NOISE_PERM_SIZE - 1));
         vfloat w000 = spmd_call<Grad>(ix, iy, iz, dx, dy, dz);
         vfloat w100 = spmd_call<Grad>(ix + 1, iy, iz, dx - 1, dy, dz);
         vfloat w010 = spmd_call<Grad>(ix, iy + 1, iz, dx, dy - 1, dz);
@@ -482,9 +483,9 @@ struct Turbulence : spmd_kernel
 
         vfloat sum = 0.0f, lambda = 1.0f, o = 1.0f;
         for (int i = 0; i < octaves; ++i) {
-            sum += abs(o * Noise(lambda * x, lambda * y, lambda * z));
-            lambda *= 1.99f;
-            o *= omega;
+            store(sum, sum + abs(o * spmd_call<Noise>(lambda * x, lambda * y, lambda * z)));
+            store(lambda, lambda * 1.99f);
+            store(o, o * omega);
         }
         return sum * 0.5f;
     }
@@ -505,7 +506,7 @@ struct noise : spmd_kernel
                 vfloat y = y0 + j * dy;
 
                 lint index = (j * width + i + programIndex);
-                index[output] = spmd_call<Turbulence>(x, y, 0.6f, 8);
+                store(index[output], spmd_call<Turbulence>(x, y, 0.6f, 8));
             }
         }
     }
@@ -514,6 +515,22 @@ struct noise : spmd_kernel
 
 #endif // V2
 
+#ifdef ISPC
+
+#ifdef NOISE
+#include "noise.ispc.h"
+
+void noise(float x0, float y0, float x1,
+           float y1, int width, int height,
+           float output[])
+{
+    ispc::noise_ispc(x0, y0, x1, y1, width, height, output);
+}
+
+#endif // NOISE
+
+#endif // ISPC
+
 #ifdef SIMPLE
 int main()
 {
@@ -521,7 +538,13 @@ int main()
     for (int i = 0; i < 16; ++i)
         vin[i] = (float)i;
 
+#ifdef V1
+    simple(vin, vout, 16);
+#endif // V1
+
+#ifdef V2
     spmd_call<simple>(vin, vout, 16);
+#endif // V2
 
     for (int i = 0; i < 16; ++i)
         printf("%d: simple(%f) = %f\n", i, vin[i], vout[i]);
@@ -557,7 +580,26 @@ int main()
 
     float *buf = new float[width*height];
 
-    spmd_call<noise>(x0, y0, x1, y1, width, height, buf);
+    int num_iterations = 100;
+
+    for (int i = 0; i < num_iterations; i++)
+    {
+#ifdef SCALAR
+        noise(x0, y0, x1, y1, width, height, buf);
+#endif
+
+#ifdef V1
+        noise(x0, y0, x1, y1, width, height, buf);
+#endif // V1
+
+#ifdef V2
+        spmd_call<noise>(x0, y0, x1, y1, width, height, buf);
+#endif // V2
+
+#ifdef ISPC
+        noise(x0, y0, x1, y1, width, height, buf);
+#endif // ISPC
+    }
 
     writePPM(buf, width, height, "noise.ppm");
 }

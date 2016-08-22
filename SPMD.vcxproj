@@ -76,6 +76,8 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerOutput>AssemblyCode</AssemblerOutput>
+      <FloatingPointModel>Fast</FloatingPointModel>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -88,6 +90,8 @@
       <SDLCheck>true</SDLCheck>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerOutput>AssemblyCode</AssemblerOutput>
+      <FloatingPointModel>Fast</FloatingPointModel>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -101,6 +105,9 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerOutput>AssemblyCode</AssemblerOutput>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
@@ -117,6 +124,9 @@
       <SDLCheck>true</SDLCheck>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_MBCS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AssemblerOutput>AssemblyCode</AssemblerOutput>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
@@ -131,6 +141,23 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="noise.ispc">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ispc.exe noise.ispc -o $(IntDir)noise.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h noise.ispc.h</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building noise.ispc</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)noise.ispc.obj;noise.ispc.h</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">ispc.exe noise.ispc -o $(IntDir)noise.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h noise.ispc.h</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">Building noise.ispc</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">$(IntDir)noise.ispc.obj;noise.ispc.h</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">ispc.exe noise.ispc -o $(IntDir)noise.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h noise.ispc.h</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">Building noise.ispc</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">$(IntDir)noise.ispc.obj;noise.ispc.h</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ispc.exe noise.ispc -o $(IntDir)noise.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h noise.ispc.h</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building noise.ispc</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)noise.ispc.obj;noise.ispc.h</Outputs>
+    </CustomBuild>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

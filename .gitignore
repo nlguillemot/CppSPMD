@@ -4,3 +4,6 @@
 *.vcxproj.user
 x64
 noise.ppm
+My Amplifier Results*
+*.s
+*.ispc.h

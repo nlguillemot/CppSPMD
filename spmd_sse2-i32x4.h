@@ -34,6 +34,11 @@ struct vbool
     }
 };
 
+vbool operator||(const vbool& a, const vbool& b)
+{
+    return vbool{ _mm_or_ps(a._value, b._value) };
+}
+
 struct vfloat
 {
     __m128 _value;
@@ -44,6 +49,10 @@ struct vfloat
 
     vfloat(float value)
         : _value(_mm_set1_ps(value))
+    { }
+
+    vfloat(int value)
+        : _value(_mm_set1_ps((float)value))
     { }
 
     vfloat& operator=(const vfloat& other)
@@ -58,9 +67,9 @@ struct vfloat
         return *this;
     }
 
-    vfloat& operator*=(float other)
+    vfloat& operator*=(const vfloat& other)
     {
-        _value = _mm_or_ps(_mm_and_ps(exec._mask, _mm_mul_ps(_value, _mm_set1_ps(other))), _mm_andnot_ps(exec._mask, _value));
+        _value = _mm_or_ps(_mm_and_ps(exec._mask, _mm_mul_ps(_value, other._value)), _mm_andnot_ps(exec._mask, _value));
         return *this;
     }
 };
@@ -80,34 +89,14 @@ vfloat operator+(const vfloat& a, const vfloat& b)
     return vfloat{ _mm_add_ps(a._value, b._value) };
 }
 
-vfloat operator+(float a, const vfloat& b)
-{
-    return vfloat{ _mm_add_ps(_mm_set1_ps(a), b._value) };
-}
-
-vfloat operator+(const vfloat& a, float b)
-{
-    return vfloat{ _mm_add_ps(a._value, _mm_set1_ps(b)) };
-}
-
 vfloat operator-(const vfloat& a, const vfloat& b)
 {
     return vfloat{ _mm_sub_ps(a._value, b._value) };
 }
 
-vfloat operator-(const vfloat& a, int b)
-{
-    return vfloat{ _mm_sub_ps(a._value, _mm_set1_ps((float)b)) };
-}
-
-vfloat operator-(float a, const vfloat& b)
-{
-    return vfloat{ _mm_sub_ps(_mm_set1_ps(a), b._value) };
-}
-
 vfloat operator-(const vfloat& a)
 {
-    return vfloat{ _mm_xor_ps(a._value, _mm_set1_ps(-0.0)) };
+    return vfloat{ _mm_sub_ps(_mm_xor_ps(a._value,a._value), a._value) };
 }
 
 vfloat abs(const vfloat& a)
@@ -126,17 +115,17 @@ vfloat floor(const vfloat& a)
     return vfloat{ _mm_sub_ps(fval, _mm_and_ps(_mm_cmplt_ps(a._value, fval), _mm_set1_ps(1.0f))) };
 }
 
-vfloat clamp(const vfloat& v, float a, float b)
+vfloat clamp(const vfloat& v, const vfloat& a, const vfloat& b)
 {
-    __m128 lomask = _mm_cmplt_ps(v._value, _mm_set1_ps(a));
-    __m128 himask = _mm_cmpgt_ps(v._value, _mm_set1_ps(b));
+    __m128 lomask = _mm_cmplt_ps(v._value, a._value);
+    __m128 himask = _mm_cmpgt_ps(v._value, b._value);
     __m128 okmask = _mm_andnot_ps(_mm_or_ps(lomask, himask), _mm_cmpeq_ps(_mm_setzero_ps(), _mm_setzero_ps()));
-    return vfloat{ _mm_or_ps(_mm_and_ps(okmask, v._value), _mm_or_ps(_mm_and_ps(lomask, _mm_set1_ps(a)), _mm_and_ps(himask, _mm_set1_ps(b)))) };
+    return vfloat{ _mm_or_ps(_mm_and_ps(okmask, v._value), _mm_or_ps(_mm_and_ps(lomask, a._value), _mm_and_ps(himask, b._value))) };
 }
 
-vbool operator<(const vfloat& a, float b)
+vbool operator<(const vfloat& a, const vfloat& b)
 {
-    return vbool{ _mm_cmplt_ps(a._value, _mm_set1_ps(b)) };
+    return vbool{ _mm_cmplt_ps(a._value, b._value) };
 }
 
 vfloat spmd_ternary(const vbool& cond, const vfloat& a, const vfloat& b)
@@ -165,9 +154,26 @@ struct vint
         : _value(value)
     { }
 
+    vint(int value)
+        : _value(_mm_set1_epi32(value))
+    { }
+
     vint(const vfloat& other)
         : _value(_mm_cvtps_epi32(other._value))
     { }
+
+    operator vbool() const
+    {
+        return vbool{ _mm_castsi128_ps(
+            _mm_andnot_si128(
+                _mm_cmpeq_epi32(_value, _mm_setzero_si128()),
+                _mm_cmpeq_epi32(_mm_setzero_si128(), _mm_setzero_si128()))) };
+    }
+
+    operator vfloat() const
+    {
+        return vfloat{ _mm_cvtepi32_ps(_value) };
+    }
 
     vint& operator=(const vint& other)
     {
@@ -195,14 +201,6 @@ struct vint
         return *this;
     }
 
-    operator vbool() const
-    {
-        return vbool{ _mm_castsi128_ps(
-            _mm_andnot_si128(
-                _mm_cmpeq_epi32(_value, _mm_setzero_si128()),
-                _mm_cmpeq_epi32(_mm_setzero_si128(), _mm_setzero_si128()))) };
-    }
-
     vint_vref operator[](int* ptr) const
     {
         return vint_vref{ ptr, _value };
@@ -210,13 +208,13 @@ struct vint
 };
 
 // scatter
-vint_vref& vint_vref::operator=(const vint& other)
+vint_vref& vint_vref::operator=(const vint& src)
 {
     __declspec(align(16)) int vindex[4];
     _mm_store_si128((__m128i*)vindex, _vindex);
 
     __declspec(align(16)) int stored[4];
-    _mm_store_si128((__m128i*)stored, other._value);
+    _mm_store_si128((__m128i*)stored, src._value);
 
     int mask = _mm_movemask_ps(exec._mask);
     for (int i = 0; i < 4; i++)
@@ -251,34 +249,19 @@ vint operator+(const vint& a, const vint& b)
     return vint{ _mm_add_epi32(a._value, b._value) };
 }
 
-vint operator+(const vint& a, int b)
+vint operator&(const vint& a, const vint& b)
 {
-    return vint{ _mm_add_epi32(a._value, _mm_set1_epi32(b)) };
+    return vint{ _mm_and_si128(a._value, b._value) };
 }
 
-vfloat operator-(const vfloat& a, const vint& b)
+vbool operator<(const vint& a, const vint& b)
 {
-    return vfloat{ _mm_sub_ps(a._value, _mm_cvtepi32_ps(b._value)) };
+    return vbool{ _mm_castsi128_ps(_mm_cmplt_epi32(a._value, b._value)) };
 }
 
-vint operator&(const vint& a, int b)
+vbool operator==(const vint& a, const vint& b)
 {
-    return vint{ _mm_and_si128(a._value, _mm_set1_epi32(b)) };
-}
-
-vbool operator<(const vint& a, int b)
-{
-    return vbool{ _mm_castsi128_ps(_mm_cmplt_epi32(a._value, _mm_set1_epi32(b))) };
-}
-
-vbool operator==(const vint& a, int b)
-{
-    return vbool{ _mm_castsi128_ps(_mm_cmpeq_epi32(a._value, _mm_set1_epi32(b))) };
-}
-
-vbool operator||(const vbool& a, const vbool& b)
-{
-    return vbool{ _mm_or_ps(a._value, b._value) };
+    return vbool{ _mm_castsi128_ps(_mm_cmpeq_epi32(a._value, b._value)) };
 }
 
 // reference to a vfloat stored linearly in memory
@@ -293,13 +276,13 @@ struct vfloat_lref
         if (mask == 0b1111)
         {
             // "all on" optimization: vector store
-            _mm_store_ps(_value, other._value);
+            _mm_storeu_ps(_value, other._value);
         }
         else
         {
             // hand-written masked store
             __declspec(align(16)) float stored[4];
-            _mm_store_ps(stored, other._value);
+            _mm_storeu_ps(stored, other._value);
 
             for (int i = 0; i < 4; i++)
             {
@@ -317,7 +300,7 @@ struct vfloat_lref
         if (mask == 0b1111)
         {
             // "all on" optimization: vector load
-            return vfloat{ _mm_load_ps(_value) };
+            return vfloat{ _mm_loadu_ps(_value) };
         }
         else
         {
@@ -329,7 +312,7 @@ struct vfloat_lref
                     loaded[i] = _value[i];
             }
 
-            return vfloat{ _mm_load_ps(loaded) };
+            return vfloat{ _mm_loadu_ps(loaded) };
         }
     }
 };
@@ -337,6 +320,11 @@ struct vfloat_lref
 struct lint
 {
     __m128i _value;
+
+    operator vfloat() const
+    {
+        return vfloat{ _mm_cvtepi32_ps(_value) };
+    }
 
     vfloat_lref operator[](float* ptr) const
     {
@@ -354,10 +342,16 @@ lint operator+(int a, const lint& b)
     return lint{ _mm_add_epi32(_mm_set1_epi32(a), b._value) };
 }
 
-vfloat operator*(const lint& a, float b)
+vbool operator<(const lint& a, const lint& b)
 {
-    return vfloat{ _mm_mul_ps(_mm_cvtepi32_ps(a._value), _mm_set1_ps(b)) };
+    return vbool{ _mm_castsi128_ps(_mm_cmplt_epi32(a._value, b._value)) };
 }
+
+vbool operator==(const lint& a, const lint& b)
+{
+    return vbool{ _mm_castsi128_ps(_mm_cmpeq_epi32(a._value, b._value)) };
+}
+
 
 static const lint programIndex = lint{ _mm_set_epi32(3,2,1,0) };
 static const int programCount = 4;
