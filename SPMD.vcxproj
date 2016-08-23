@@ -135,9 +135,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="spmdv2_avx2-i32x8.h" />
     <ClInclude Include="spmd_avx2-i32x8.h" />
-    <ClInclude Include="spmd_sse2-i32x4.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
@@ -157,6 +155,23 @@
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ispc.exe noise.ispc -o $(IntDir)noise.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h noise.ispc.h</Command>
       <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building noise.ispc</Message>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)noise.ispc.obj;noise.ispc.h</Outputs>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="simple.ispc">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ispc.exe simple.ispc -o $(IntDir)simple.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h simple.ispc.h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">ispc.exe simple.ispc -o $(IntDir)simple.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h simple.ispc.h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">ispc.exe simple.ispc -o $(IntDir)simple.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h simple.ispc.h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ispc.exe simple.ispc -o $(IntDir)simple.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h simple.ispc.h</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building simple.ispc</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">Building simple.ispc</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">Building simple.ispc</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building simple.ispc</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)simple.ispc.obj;simple.ispc.h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">$(IntDir)simple.ispc.obj;simple.ispc.h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">$(IntDir)simple.ispc.obj;simple.ispc.h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)simple.ispc.obj;simple.ispc.h</Outputs>
     </CustomBuild>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

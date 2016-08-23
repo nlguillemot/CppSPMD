@@ -4,11 +4,12 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="spmd_sse2-i32x4.h" />
-    <ClInclude Include="spmd_avx2-i32x8.h" />
-    <ClInclude Include="spmdv2_avx2-i32x8.h" />
+    <CustomBuild Include="noise.ispc" />
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="noise.ispc" />
+    <ClInclude Include="spmd_avx2-i32x8.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="simple.ispc" />
   </ItemGroup>
 </Project>

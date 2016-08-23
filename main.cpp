@@ -1,18 +1,13 @@
 #include <cstdio>
 
-// which version of SPMD to use
+// which version to use
 //#define SCALAR
-//#define V1
-#define V2
+#define CPPSPMD
 //#define ISPC
 
 // which test to run
 //#define SIMPLE
 #define NOISE
-
-// which instruction set to use
-//#define SSE2_I32X4
-#define AVX2_I32X8
 
 #define SPMD_NOISE_OPTIMIZATION
 
@@ -173,172 +168,8 @@ void noise(float x0, float y0, float x1, float y1,
 
 #endif // SCALAR
 
-#ifdef V1
-#ifdef SSE2_I32X4
-#include "spmd_sse2-i32x4.h"
-#endif // SSE2_I32X4
-#ifdef AVX2_I32X8
+#ifdef CPPSPMD
 #include "spmd_avx2-i32x8.h"
-#endif // AVX2_I32X8
-
-#ifdef SIMPLE
-void simple(float vin[], float vout[], 
-            int n)
-{
-    spmd_foreach(0, n, [&](const lint& index)
-    {
-        vfloat v = index[vin];
-        spmd_ifelse(v < 3.0f,
-            [&] { v = v * v; },
-        /* else */
-            [&] { v = sqrt(v); });
-        index[vout] = v;
-    });
-}
-#endif // SIMPLE
-
-#ifdef NOISE
-#define NOISE_PERM_SIZE 256
-
-static int NoisePerm[2 * NOISE_PERM_SIZE] = {
-    151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140,
-    36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148, 247, 120,
-    234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32, 57, 177, 33,
-    88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168,  68, 175, 74, 165, 71, 
-    134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 
-    230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54, 65, 25, 63, 161,
-    1, 216, 80, 73, 209, 76, 132, 187, 208,  89, 18, 169, 200, 196, 135, 130, 
-    116, 188, 159, 86, 164, 100, 109, 198, 173, 186,  3, 64, 52, 217, 226, 250,
-    124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59, 227, 
-    47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213, 119, 248, 152,  2, 44,
-    154, 163, 70, 221, 153, 101, 155, 167,  43, 172, 9, 129, 22, 39, 253,  19, 
-    98, 108, 110, 79, 113, 224, 232, 178, 185,  112, 104, 218, 246, 97, 228, 251,
-    34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249,
-    14, 239, 107, 49, 192, 214,  31, 181, 199, 106, 157, 184, 84, 204, 176, 115,
-    121, 50, 45, 127,  4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 
-    243, 141, 128, 195, 78, 66, 215, 61, 156, 180, 151, 160, 137, 91, 90, 15,
-    131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99,
-    37, 240, 21, 10, 23, 190, 6, 148, 247, 120, 234, 75, 0, 26, 197, 62, 94, 252,
-    219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 
-    136, 171, 168,  68, 175, 74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158,
-    231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245,
-    40, 244, 102, 143, 54,  65, 25, 63, 161,  1, 216, 80, 73, 209, 76, 132, 187,
-    208,  89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 
-    198, 173, 186,  3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118,
-    126, 255, 82, 85, 212, 207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42,
-    223, 183, 170, 213, 119, 248, 152,  2, 44, 154, 163, 70, 221, 153, 101, 155, 
-    167,  43, 172, 9, 129, 22, 39, 253,  19, 98, 108, 110, 79, 113, 224, 232,
-    178, 185,  112, 104, 218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144,
-    12, 191, 179, 162, 241,  81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214,
-    31, 181, 199, 106, 157, 184,  84, 204, 176, 115, 121, 50, 45, 127,  4, 150,
-    254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 
-    66, 215, 61, 156, 180
-};
-
-
-inline vfloat SmoothStep(vfloat low, vfloat high, vfloat value) {
-    vfloat v = clamp((value - low) / (high - low), 0.f, 1.f);
-    return v * v * (-2.f * v  + 3.f);
-}
-
-
-inline vint Floor2Int(const vfloat& val) {
-    return (vint)floor(val);
-}
-
-
-inline vfloat Grad(const vint& x, const vint& y, const vint& z, const vfloat& dx, const vfloat& dy, const vfloat& dz) {
-    vint h = ((x[NoisePerm] + y)[NoisePerm] + z)[NoisePerm];
-    h &= 15;
-    vfloat u = spmd_ternary(h<8 || h==12 || h==13, dx, dy);
-    vfloat v = spmd_ternary(h<4 || h==12 || h==13, dy, dz);
-    return spmd_ternary(h & 1, -u, u) + spmd_ternary(h & 2, -v, v);
-}
-
-
-inline vfloat NoiseWeight(const vfloat& t) {
-    vfloat t3 = t*t*t;
-    vfloat t4 = t3*t;
-    return 6.f*t4*t - 15.f*t4 + 10.f*t3;
-}
-
-
-inline vfloat Lerp(const vfloat& t, const vfloat& low, const vfloat& high) {
-    return (1.0f - t) * low + t * high;
-}
-
-
-static vfloat Noise(const vfloat& x, const vfloat& y, const vfloat& z) {
-    // Compute noise cell coordinates and offsets
-    vint ix = Floor2Int(x), iy = Floor2Int(y), iz = Floor2Int(z);
-    vfloat dx = x - ix, dy = y - iy, dz = z - iz;
-
-    // Compute gradient weights
-    ix &= (NOISE_PERM_SIZE-1);
-    iy &= (NOISE_PERM_SIZE-1);
-    iz &= (NOISE_PERM_SIZE-1);
-    vfloat w000 = Grad(ix,   iy,   iz,   dx,   dy,   dz);
-    vfloat w100 = Grad(ix+1, iy,   iz,   dx-1, dy,   dz);
-    vfloat w010 = Grad(ix,   iy+1, iz,   dx,   dy-1, dz);
-    vfloat w110 = Grad(ix+1, iy+1, iz,   dx-1, dy-1, dz);
-    vfloat w001 = Grad(ix,   iy,   iz+1, dx,   dy,   dz-1);
-    vfloat w101 = Grad(ix+1, iy,   iz+1, dx-1, dy,   dz-1);
-    vfloat w011 = Grad(ix,   iy+1, iz+1, dx,   dy-1, dz-1);
-    vfloat w111 = Grad(ix+1, iy+1, iz+1, dx-1, dy-1, dz-1);
-
-    // Compute trilinear interpolation of weights
-    vfloat wx = NoiseWeight(dx), wy = NoiseWeight(dy), wz = NoiseWeight(dz);
-    vfloat x00 = Lerp(wx, w000, w100);
-    vfloat x10 = Lerp(wx, w010, w110);
-    vfloat x01 = Lerp(wx, w001, w101);
-    vfloat x11 = Lerp(wx, w011, w111);
-    vfloat y0 = Lerp(wy, x00, x10);
-    vfloat y1 = Lerp(wy, x01, x11);
-    return Lerp(wz, y0, y1);
-}
-
-
-static vfloat Turbulence(const vfloat& x, const vfloat& y, const vfloat& z, int octaves) {
-    float omega = 0.6f;
-
-    vfloat sum = 0.0f, lambda = 1.0f, o = 1.0f;
-    for (int i = 0; i < octaves; ++i) {
-        sum += abs(o * Noise(lambda * x, lambda * y, lambda * z));
-        lambda *= 1.99f;
-        o *= omega;
-    }
-    return sum * 0.5f;
-}
-
-
-void noise(float x0, float y0, float x1, 
-           float y1, int width, int height, 
-           float output[])
-{
-    float dx = (x1 - x0) / width;
-    float dy = (y1 - y0) / height;
-
-    for (int j = 0; j < height; j++) {
-        for (int i = 0; i < width; i += programCount) {
-            vfloat x = x0 + (i + programIndex) * dx;
-            vfloat y = y0 + j * dy;
-
-            lint index = (j * width + i + programIndex);
-            index[output] = Turbulence(x, y, 0.6f, 8);
-        }
-    }
-}
-#endif // NOISE
-
-#endif // V1
-
-#ifdef V2
-#ifdef SSE2_I32X4
-#include "spmdv2_sse2-i32x4.h"
-#endif // SSE2_I32X4
-#ifdef AVX2_I32X8
-#include "spmdv2_avx2-i32x8.h"
-#endif // AVX2_I32X8
 
 #ifdef SIMPLE
 struct simple : spmd_kernel
@@ -555,20 +386,16 @@ struct noise : spmd_kernel
 };
 #endif // NOISE
 
-#endif // V2
+#endif // CPPSPMD
 
 #ifdef ISPC
 
+#ifdef SIMPLE
+#include "simple.ispc.h"
+#endif // SIMPLE
+
 #ifdef NOISE
 #include "noise.ispc.h"
-
-void noise(float x0, float y0, float x1,
-           float y1, int width, int height,
-           float output[])
-{
-    ispc::noise_ispc(x0, y0, x1, y1, width, height, output);
-}
-
 #endif // NOISE
 
 #endif // ISPC
@@ -580,13 +407,17 @@ int main()
     for (int i = 0; i < 16; ++i)
         vin[i] = (float)i;
 
-#ifdef V1
+#ifdef SCALAR
     simple(vin, vout, 16);
-#endif // V1
+#endif // SCALAR
 
-#ifdef V2
+#ifdef CPPSPMD
     spmd_call<simple>(vin, vout, 16);
-#endif // V2
+#endif // CPPSPMD
+
+#ifdef ISPC
+    ispc::simple(vin, vout, 16);
+#endif // ISPC
 
     for (int i = 0; i < 16; ++i)
         printf("%d: simple(%f) = %f\n", i, vin[i], vout[i]);
@@ -630,16 +461,12 @@ int main()
         noise(x0, y0, x1, y1, width, height, buf);
 #endif
 
-#ifdef V1
-        noise(x0, y0, x1, y1, width, height, buf);
-#endif // V1
-
-#ifdef V2
+#ifdef CPPSPMD
         spmd_call<noise>(x0, y0, x1, y1, width, height, buf);
-#endif // V2
+#endif // CPPSPMD
 
 #ifdef ISPC
-        noise(x0, y0, x1, y1, width, height, buf);
+        ispc::noise(x0, y0, x1, y1, width, height, buf);
 #endif // ISPC
     }
 

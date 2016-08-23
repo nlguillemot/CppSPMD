@@ -144,9 +144,9 @@ static float Turbulence(float x, float y, float z, uniform int octaves) {
 }
 
 
-export void noise_ispc(uniform float x0, uniform float y0, uniform float x1, 
-                       uniform float y1, uniform int width, uniform int height, 
-                       uniform float output[])
+export void noise(uniform float x0, uniform float y0, uniform float x1, 
+                  uniform float y1, uniform int width, uniform int height, 
+                  uniform float output[])
 {
     uniform float dx = (x1 - x0) / width;
     uniform float dy = (y1 - y0) / height;
