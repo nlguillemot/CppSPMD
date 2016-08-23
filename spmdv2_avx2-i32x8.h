@@ -379,6 +379,26 @@ spmd_kernel::vfloat clamp(const spmd_kernel::vfloat& v, const spmd_kernel::vfloa
     return spmd_kernel::vfloat{ _mm256_or_ps(_mm256_and_ps(okmask, v._value), _mm256_or_ps(_mm256_and_ps(lomask, a._value), _mm256_and_ps(himask, b._value))) };
 }
 
+spmd_kernel::vfloat fma(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+{
+    return spmd_kernel::vfloat{ _mm256_fmadd_ps(a._value, b._value, c._value) };
+}
+
+spmd_kernel::vfloat fms(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+{
+    return spmd_kernel::vfloat{ _mm256_fmsub_ps(a._value, b._value, c._value) };
+}
+
+spmd_kernel::vfloat fnma(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+{
+    return spmd_kernel::vfloat{ _mm256_fnmadd_ps(a._value, b._value, c._value) };
+}
+
+spmd_kernel::vfloat fnms(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+{
+    return spmd_kernel::vfloat{ _mm256_fnmsub_ps(a._value, b._value, c._value) };
+}
+
 spmd_kernel::lint operator+(int a, const spmd_kernel::lint& b)
 {
     return spmd_kernel::lint{ _mm256_add_epi32(_mm256_set1_epi32(a), b._value) };

@@ -14,6 +14,8 @@
 //#define SSE2_I32X4
 #define AVX2_I32X8
 
+#define SPMD_NOISE_OPTIMIZATION
+
 #ifdef SCALAR
 #include <cmath>
 
@@ -415,9 +417,13 @@ struct Floor2Int : spmd_kernel
 
 struct Grad : spmd_kernel
 {
+#ifdef SPMD_NOISE_OPTIMIZATION
+    vfloat _call(const vint& h, const vfloat& dx, const vfloat& dy, const vfloat& dz) {
+#else
     vfloat _call(const vint& x, const vint& y, const vint& z, const vfloat& dx, const vfloat& dy, const vfloat& dz) {
         vint h = load((load((load(x[NoisePerm]) + y)[NoisePerm]) + z)[NoisePerm]);
         store(h, h & 15);
+#endif
         vfloat u = spmd_ternary(h < 8 || h == 12 || h == 13, dx, dy);
         vfloat v = spmd_ternary(h < 4 || h == 12 || h == 13, dy, dz);
         return spmd_ternary(h & 1, -u, u) + spmd_ternary(h & 2, -v, v);
@@ -430,7 +436,11 @@ struct NoiseWeight : spmd_kernel
     vfloat _call(const vfloat& t) {
         vfloat t3 = t*t*t;
         vfloat t4 = t3*t;
+#ifdef SPMD_NOISE_OPTIMIZATION
+        return fma(6.f*t4,t, fnma(15.f,t4,10.f*t3));
+#else
         return 6.f*t4*t - 15.f*t4 + 10.f*t3;
+#endif
     }
 };
 
@@ -438,7 +448,11 @@ struct NoiseWeight : spmd_kernel
 struct Lerp : spmd_kernel
 {
     vfloat _call(const vfloat& t, const vfloat& low, const vfloat& high) {
+#ifdef SPMD_NOISE_OPTIMIZATION
+        return fnma(t, low, fma(t, high, low));
+#else
         return (1.0f - t) * low + t * high;
+#endif
     }
 };
 
@@ -454,6 +468,33 @@ struct Noise : spmd_kernel
         store(ix, ix & (NOISE_PERM_SIZE - 1));
         store(iy, iy & (NOISE_PERM_SIZE - 1));
         store(iz, iz & (NOISE_PERM_SIZE - 1));
+
+#ifdef SPMD_NOISE_OPTIMIZATION
+        vint xx0 = load(ix[NoisePerm]);
+        vint xx1 = load((ix + 1)[NoisePerm]);
+        vint yy0 = load((xx0 + iy)[NoisePerm]);
+        vint yy1 = load((xx0 + (iy + 1))[NoisePerm]);
+        vint yy10 = load((xx1 + iy)[NoisePerm]);
+        vint zz0 = load((yy0 + iz)[NoisePerm]);
+        vint yy11 = load((xx1 + (iy + 1))[NoisePerm]);
+        vint h0 = zz0 & 15;
+        vint h1 = load((yy10 + iz)[NoisePerm]) & 15;
+        vint h2 = load((yy1 + iz)[NoisePerm]) & 15;
+        vint h3 = load((yy11 + iz)[NoisePerm]) & 15;
+        vint h4 = load((yy0 + iz)[NoisePerm+1]) & 15;
+        vint h5 = load((yy10 + iz)[NoisePerm+1]) & 15;
+        vint h6 = load((yy1 + iz)[NoisePerm+1]) & 15;
+        vint h7 = load((yy11 + iz)[NoisePerm+1]) & 15;
+
+        vfloat w000 = spmd_call<Grad>(h0, dx, dy, dz);
+        vfloat w100 = spmd_call<Grad>(h1, dx - 1, dy, dz);
+        vfloat w010 = spmd_call<Grad>(h2, dx, dy - 1, dz);
+        vfloat w110 = spmd_call<Grad>(h3, dx - 1, dy - 1, dz);
+        vfloat w001 = spmd_call<Grad>(h4, dx, dy, dz - 1);
+        vfloat w101 = spmd_call<Grad>(h5, dx - 1, dy, dz - 1);
+        vfloat w011 = spmd_call<Grad>(h6, dx, dy - 1, dz - 1);
+        vfloat w111 = spmd_call<Grad>(h7, dx - 1, dy - 1, dz - 1);
+#else
         vfloat w000 = spmd_call<Grad>(ix, iy, iz, dx, dy, dz);
         vfloat w100 = spmd_call<Grad>(ix + 1, iy, iz, dx - 1, dy, dz);
         vfloat w010 = spmd_call<Grad>(ix, iy + 1, iz, dx, dy - 1, dz);
@@ -462,6 +503,7 @@ struct Noise : spmd_kernel
         vfloat w101 = spmd_call<Grad>(ix + 1, iy, iz + 1, dx - 1, dy, dz - 1);
         vfloat w011 = spmd_call<Grad>(ix, iy + 1, iz + 1, dx, dy - 1, dz - 1);
         vfloat w111 = spmd_call<Grad>(ix + 1, iy + 1, iz + 1, dx - 1, dy - 1, dz - 1);
+#endif
 
         // Compute trilinear interpolation of weights
         vfloat wx = spmd_call<NoiseWeight>(dx), wy = spmd_call<NoiseWeight>(dy), wz = spmd_call<NoiseWeight>(dz);
