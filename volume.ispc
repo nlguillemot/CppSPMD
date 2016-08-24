@@ -298,7 +298,7 @@ volume_tile(uniform int x0, uniform int y0, uniform int x1,
 }
 
 export void
-volume_ispc(uniform float density[], uniform int nVoxels[3], 
+volume(uniform float density[], uniform int nVoxels[3], 
             const uniform float raster2camera[4][4],
             const uniform float camera2world[4][4], 
             uniform int width, uniform int height, uniform float image[]) {

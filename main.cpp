@@ -8,7 +8,8 @@
 // which test to run
 //#define SIMPLE
 //#define NOISE
-#define MANDELBROT
+//#define MANDELBROT
+#define VOLUME
 
 // Enable hand-written optimizations
 #define SPMD_NOISE_OPTIMIZATION
@@ -287,6 +288,311 @@ void mandelbrot(float x0, float y0, float x1, float y1,
 }
 #endif // MANDELBROT
 
+#ifdef VOLUME
+/*
+  Copyright (c) 2011, Intel Corporation
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are
+  met:
+
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+
+    * Neither the name of Intel Corporation nor the names of its
+      contributors may be used to endorse or promote products derived from
+      this software without specific prior written permission.
+
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+   IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+   TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+   PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+   OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+   EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+   PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+   PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+   LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  
+*/
+
+#include <assert.h>
+#include <math.h>
+#include <algorithm>
+
+// Just enough of a float3 class to do what we need in this file.
+struct float3 {
+    float3() { }
+    float3(float xx, float yy, float zz) { x = xx; y = yy; z = zz; }
+
+    float3 operator*(float f) const { return float3(x*f, y*f, z*f); }
+    float3 operator-(const float3 &f2) const { 
+        return float3(x-f2.x, y-f2.y, z-f2.z); 
+    }
+    float3 operator*(const float3 &f2) const { 
+        return float3(x*f2.x, y*f2.y, z*f2.z); 
+    }
+    float3 operator+(const float3 &f2) const { 
+        return float3(x+f2.x, y+f2.y, z+f2.z); 
+    }
+    float3 operator/(const float3 &f2) const { 
+        return float3(x/f2.x, y/f2.y, z/f2.z); 
+    }
+    float operator[](int i) const { return (&x)[i]; }
+    float &operator[](int i) { return (&x)[i]; }
+
+    float x, y, z;
+    float pad;  // match padding/alignment of ispc version 
+}
+#ifndef _MSC_VER
+__attribute__ ((aligned(16)))
+#endif
+;
+
+struct Ray {
+    float3 origin, dir;
+};
+
+
+static void
+generateRay(const float raster2camera[4][4], const float camera2world[4][4],
+            float x, float y, Ray &ray) {
+    // transform raster coordinate (x, y, 0) to camera space
+    float camx = raster2camera[0][0] * x + raster2camera[0][1] * y + raster2camera[0][3];
+    float camy = raster2camera[1][0] * x + raster2camera[1][1] * y + raster2camera[1][3];
+    float camz = raster2camera[2][3];
+    float camw = raster2camera[3][3];
+    camx /= camw;
+    camy /= camw;
+    camz /= camw;
+
+    ray.dir.x = camera2world[0][0] * camx + camera2world[0][1] * camy + camera2world[0][2] * camz;
+    ray.dir.y = camera2world[1][0] * camx + camera2world[1][1] * camy + camera2world[1][2] * camz;
+    ray.dir.z = camera2world[2][0] * camx + camera2world[2][1] * camy + camera2world[2][2] * camz;
+
+    ray.origin.x = camera2world[0][3] / camera2world[3][3];
+    ray.origin.y = camera2world[1][3] / camera2world[3][3];
+    ray.origin.z = camera2world[2][3] / camera2world[3][3];
+}
+
+
+static bool
+Inside(float3 p, float3 pMin, float3 pMax) {
+    return (p.x >= pMin.x && p.x <= pMax.x &&
+            p.y >= pMin.y && p.y <= pMax.y &&
+            p.z >= pMin.z && p.z <= pMax.z);
+}
+
+
+static bool
+IntersectP(const Ray &ray, float3 pMin, float3 pMax, float *hit0, float *hit1) {
+    float t0 = -1e30f, t1 = 1e30f;
+
+    float3 tNear = (pMin - ray.origin) / ray.dir;
+    float3 tFar  = (pMax - ray.origin) / ray.dir;
+    if (tNear.x > tFar.x) {
+        float tmp = tNear.x;
+        tNear.x = tFar.x;
+        tFar.x = tmp;
+    }
+    t0 = std::max(tNear.x, t0);
+    t1 = std::min(tFar.x, t1);
+
+    if (tNear.y > tFar.y) {
+        float tmp = tNear.y;
+        tNear.y = tFar.y;
+        tFar.y = tmp;
+    }
+    t0 = std::max(tNear.y, t0);
+    t1 = std::min(tFar.y, t1);
+
+    if (tNear.z > tFar.z) {
+        float tmp = tNear.z;
+        tNear.z = tFar.z;
+        tFar.z = tmp;
+    }
+    t0 = std::max(tNear.z, t0);
+    t1 = std::min(tFar.z, t1);
+    
+    if (t0 <= t1) {
+        *hit0 = t0;
+        *hit1 = t1;
+        return true;
+    }
+    else
+        return false;
+}
+
+
+static inline float Lerp(float t, float a, float b) {
+    return (1.f - t) * a + t * b;
+}
+
+
+static inline int Clamp(int v, int low, int high) {
+    return std::min(std::max(v, low), high);
+}
+
+
+static inline float D(int x, int y, int z, int nVoxels[3], float density[]) {
+    x = Clamp(x, 0, nVoxels[0]-1);
+    y = Clamp(y, 0, nVoxels[1]-1);
+    z = Clamp(z, 0, nVoxels[2]-1);
+    return density[z*nVoxels[0]*nVoxels[1] + y*nVoxels[0] + x];
+}
+
+
+static inline float3 Offset(float3 p, float3 pMin, float3 pMax) {
+    return float3((p.x - pMin.x) / (pMax.x - pMin.x),
+                  (p.y - pMin.y) / (pMax.y - pMin.y),
+                  (p.z - pMin.z) / (pMax.z - pMin.z));
+}
+
+
+static inline float Density(float3 Pobj, float3 pMin, float3 pMax, 
+                            float density[], int nVoxels[3]) {
+    if (!Inside(Pobj, pMin, pMax)) 
+        return 0;
+    // Compute voxel coordinates and offsets for _Pobj_
+    float3 vox = Offset(Pobj, pMin, pMax);
+    vox.x = vox.x * nVoxels[0] - .5f;
+    vox.y = vox.y * nVoxels[1] - .5f;
+    vox.z = vox.z * nVoxels[2] - .5f;
+    int vx = (int)(vox.x), vy = (int)(vox.y), vz = (int)(vox.z);
+    float dx = vox.x - vx, dy = vox.y - vy, dz = vox.z - vz;
+
+    // Trilinearly interpolate density values to compute local density
+    float d00 = Lerp(dx, D(vx, vy, vz, nVoxels, density),     
+                         D(vx+1, vy, vz, nVoxels, density));
+    float d10 = Lerp(dx, D(vx, vy+1, vz, nVoxels, density),   
+                         D(vx+1, vy+1, vz, nVoxels, density));
+    float d01 = Lerp(dx, D(vx, vy, vz+1, nVoxels, density),   
+                         D(vx+1, vy, vz+1, nVoxels, density));
+    float d11 = Lerp(dx, D(vx, vy+1, vz+1, nVoxels, density), 
+                         D(vx+1, vy+1, vz+1, nVoxels, density));
+    float d0 = Lerp(dy, d00, d10);
+    float d1 = Lerp(dy, d01, d11);
+    return Lerp(dz, d0, d1);
+}
+
+
+
+static float
+transmittance(float3 p0, float3 p1, float3 pMin,
+              float3 pMax, float sigma_t, float density[], int nVoxels[3]) {
+    float rayT0, rayT1;
+    Ray ray;
+    ray.origin = p1;
+    ray.dir = p0 - p1;
+
+    // Find the parametric t range along the ray that is inside the volume.
+    if (!IntersectP(ray, pMin, pMax, &rayT0, &rayT1))
+        return 1.;
+
+    rayT0 = std::max(rayT0, 0.f);
+
+    // Accumulate beam transmittance in tau
+    float tau = 0;
+    float rayLength = sqrtf(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
+                            ray.dir.z * ray.dir.z);
+    float stepDist = 0.2f;
+    float stepT = stepDist / rayLength;
+
+    float t = rayT0;
+    float3 pos = ray.origin + ray.dir * rayT0;
+    float3 dirStep = ray.dir * stepT;
+    while (t < rayT1) {
+        tau += stepDist * sigma_t * Density(pos, pMin, pMax, density, nVoxels);
+        pos = pos + dirStep;
+        t += stepT;
+    }
+
+    return expf(-tau);
+}
+
+
+static float
+distanceSquared(float3 a, float3 b) {
+    float3 d = a-b;
+    return d.x*d.x + d.y*d.y + d.z*d.z;
+}
+
+
+static float 
+raymarch(float density[], int nVoxels[3], const Ray &ray) {
+    float rayT0, rayT1;
+    float3 pMin(.3f, -.2f, .3f), pMax(1.8f, 2.3f, 1.8f);
+    float3 lightPos(-1.f, 4.f, 1.5f);
+
+    if (!IntersectP(ray, pMin, pMax, &rayT0, &rayT1))
+        return 0.;
+
+    rayT0 = std::max(rayT0, 0.f);
+
+    // Parameters that define the volume scattering characteristics and
+    // sampling rate for raymarching
+    float Le = .25f;           // Emission coefficient
+    float sigma_a = 10;        // Absorption coefficient
+    float sigma_s = 10;        // Scattering coefficient
+    float stepDist = 0.025f;   // Ray step amount
+    float lightIntensity = 40; // Light source intensity
+
+    float tau = 0.f;  // accumulated beam transmittance
+    float L = 0;      // radiance along the ray
+    float rayLength = sqrtf(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
+                            ray.dir.z * ray.dir.z);
+    float stepT = stepDist / rayLength;
+
+    float t = rayT0;
+    float3 pos = ray.origin + ray.dir * rayT0;
+    float3 dirStep = ray.dir * stepT;
+    while (t < rayT1) {
+        float d = Density(pos, pMin, pMax, density, nVoxels);
+
+        // terminate once attenuation is high
+        float atten = expf(-tau);
+        if (atten < .005f)
+            break;
+
+        // direct lighting
+        float Li = lightIntensity / distanceSquared(lightPos, pos) * 
+            transmittance(lightPos, pos, pMin, pMax, sigma_a + sigma_s,
+                          density, nVoxels);
+        L += stepDist * atten * d * sigma_s * (Li + Le);
+
+        // update beam transmittance
+        tau += stepDist * (sigma_a + sigma_s) * d;
+
+        pos = pos + dirStep;
+        t += stepT;
+    }
+
+    // Gamma correction
+    return powf(L, 1.f / 2.2f);
+}
+
+
+void
+volume_serial(float density[], int nVoxels[3], const float raster2camera[4][4],
+              const float camera2world[4][4], 
+              int width, int height, float image[]) {
+    int offset = 0;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x, ++offset) {
+            Ray ray;
+            generateRay(raster2camera, camera2world, (float)x, (float)y, ray);
+            image[offset] = raymarch(density, nVoxels, ray);
+        }
+    }
+}
+#endif // VOLUME
+
 #endif // SCALAR
 
 #ifdef CPPSPMD
@@ -510,18 +816,24 @@ struct noise : spmd_kernel
 #ifdef MANDELBROT
 struct mandel : spmd_kernel
 {
+#ifndef SPMD_MANDELBROT_OPTIMIZATION
+    vint _call(const vfloat& c_re, const vfloat& c_im, int count)
+#else
     vint _call(const vfloat& c_re, const vfloat& c_im, const vint& count)
+#endif
     {
         vfloat z_re = c_re, z_im = c_im;
+        vint i_result;
         vint i;
 #ifdef SPMD_MANDELBROT_OPTIMIZATION
-        spmd_for([&] { i._value = _mm256_setzero_si256();  }, [&] { return i < count; }, [&] { store(i, i + 1); }, [&] {
+        spmd_for([&] { i._value = _mm256_setzero_si256();  }, [&] { return i < count; }, [&] { i._value = (i + 1)._value; }, [&] {
 #else
         spmd_for([&] { store(i, 0);  }, [&] { return i < count; }, [&] { store(i, i + 1); }, [&] {
 #endif
 
 #ifdef SPMD_MANDELBROT_OPTIMIZATION
             spmd_if(fma(z_re, z_re, z_im * z_im) > 4.0f, [&] {
+                store(i_result, i);
 #else
             spmd_if(z_re * z_re + z_im * z_im > 4.0f, [&] {
 #endif
@@ -546,7 +858,7 @@ struct mandel : spmd_kernel
 #endif
         });
 
-        return i;
+        return i_result;
     }
 };
 
@@ -587,6 +899,274 @@ struct mandelbrot : spmd_kernel
 };
 #endif // MANDELBROT
 
+#ifdef VOLUME
+// Just enough of a float3 class to do what we need in this file.
+struct float3 {
+    float3() { }
+    float3(float xx, float yy, float zz) { x = xx; y = yy; z = zz; }
+
+    float3 operator*(float f) const { return float3(x*f, y*f, z*f); }
+    float3 operator-(const float3 &f2) const { 
+        return float3(x-f2.x, y-f2.y, z-f2.z); 
+    }
+    float3 operator*(const float3 &f2) const { 
+        return float3(x*f2.x, y*f2.y, z*f2.z); 
+    }
+    float3 operator+(const float3 &f2) const { 
+        return float3(x+f2.x, y+f2.y, z+f2.z); 
+    }
+    float3 operator/(const float3 &f2) const { 
+        return float3(x/f2.x, y/f2.y, z/f2.z); 
+    }
+    float operator[](int i) const { return (&x)[i]; }
+    float &operator[](int i) { return (&x)[i]; }
+
+    float x, y, z;
+    float pad;  // match padding/alignment of ispc version 
+}
+#ifndef _MSC_VER
+__attribute__ ((aligned(16)))
+#endif
+;
+
+struct Ray {
+    float3 origin, dir;
+};
+
+
+static void
+generateRay(const float raster2camera[4][4], const float camera2world[4][4],
+            float x, float y, Ray &ray) {
+    // transform raster coordinate (x, y, 0) to camera space
+    float camx = raster2camera[0][0] * x + raster2camera[0][1] * y + raster2camera[0][3];
+    float camy = raster2camera[1][0] * x + raster2camera[1][1] * y + raster2camera[1][3];
+    float camz = raster2camera[2][3];
+    float camw = raster2camera[3][3];
+    camx /= camw;
+    camy /= camw;
+    camz /= camw;
+
+    ray.dir.x = camera2world[0][0] * camx + camera2world[0][1] * camy + camera2world[0][2] * camz;
+    ray.dir.y = camera2world[1][0] * camx + camera2world[1][1] * camy + camera2world[1][2] * camz;
+    ray.dir.z = camera2world[2][0] * camx + camera2world[2][1] * camy + camera2world[2][2] * camz;
+
+    ray.origin.x = camera2world[0][3] / camera2world[3][3];
+    ray.origin.y = camera2world[1][3] / camera2world[3][3];
+    ray.origin.z = camera2world[2][3] / camera2world[3][3];
+}
+
+
+static bool
+Inside(float3 p, float3 pMin, float3 pMax) {
+    return (p.x >= pMin.x && p.x <= pMax.x &&
+            p.y >= pMin.y && p.y <= pMax.y &&
+            p.z >= pMin.z && p.z <= pMax.z);
+}
+
+
+static bool
+IntersectP(const Ray &ray, float3 pMin, float3 pMax, float *hit0, float *hit1) {
+    float t0 = -1e30f, t1 = 1e30f;
+
+    float3 tNear = (pMin - ray.origin) / ray.dir;
+    float3 tFar  = (pMax - ray.origin) / ray.dir;
+    if (tNear.x > tFar.x) {
+        float tmp = tNear.x;
+        tNear.x = tFar.x;
+        tFar.x = tmp;
+    }
+    t0 = std::max(tNear.x, t0);
+    t1 = std::min(tFar.x, t1);
+
+    if (tNear.y > tFar.y) {
+        float tmp = tNear.y;
+        tNear.y = tFar.y;
+        tFar.y = tmp;
+    }
+    t0 = std::max(tNear.y, t0);
+    t1 = std::min(tFar.y, t1);
+
+    if (tNear.z > tFar.z) {
+        float tmp = tNear.z;
+        tNear.z = tFar.z;
+        tFar.z = tmp;
+    }
+    t0 = std::max(tNear.z, t0);
+    t1 = std::min(tFar.z, t1);
+    
+    if (t0 <= t1) {
+        *hit0 = t0;
+        *hit1 = t1;
+        return true;
+    }
+    else
+        return false;
+}
+
+
+static inline float Lerp(float t, float a, float b) {
+    return (1.f - t) * a + t * b;
+}
+
+
+static inline int Clamp(int v, int low, int high) {
+    return std::min(std::max(v, low), high);
+}
+
+
+static inline float D(int x, int y, int z, int nVoxels[3], float density[]) {
+    x = Clamp(x, 0, nVoxels[0]-1);
+    y = Clamp(y, 0, nVoxels[1]-1);
+    z = Clamp(z, 0, nVoxels[2]-1);
+    return density[z*nVoxels[0]*nVoxels[1] + y*nVoxels[0] + x];
+}
+
+
+static inline float3 Offset(float3 p, float3 pMin, float3 pMax) {
+    return float3((p.x - pMin.x) / (pMax.x - pMin.x),
+                  (p.y - pMin.y) / (pMax.y - pMin.y),
+                  (p.z - pMin.z) / (pMax.z - pMin.z));
+}
+
+
+static inline float Density(float3 Pobj, float3 pMin, float3 pMax, 
+                            float density[], int nVoxels[3]) {
+    if (!Inside(Pobj, pMin, pMax)) 
+        return 0;
+    // Compute voxel coordinates and offsets for _Pobj_
+    float3 vox = Offset(Pobj, pMin, pMax);
+    vox.x = vox.x * nVoxels[0] - .5f;
+    vox.y = vox.y * nVoxels[1] - .5f;
+    vox.z = vox.z * nVoxels[2] - .5f;
+    int vx = (int)(vox.x), vy = (int)(vox.y), vz = (int)(vox.z);
+    float dx = vox.x - vx, dy = vox.y - vy, dz = vox.z - vz;
+
+    // Trilinearly interpolate density values to compute local density
+    float d00 = Lerp(dx, D(vx, vy, vz, nVoxels, density),     
+                         D(vx+1, vy, vz, nVoxels, density));
+    float d10 = Lerp(dx, D(vx, vy+1, vz, nVoxels, density),   
+                         D(vx+1, vy+1, vz, nVoxels, density));
+    float d01 = Lerp(dx, D(vx, vy, vz+1, nVoxels, density),   
+                         D(vx+1, vy, vz+1, nVoxels, density));
+    float d11 = Lerp(dx, D(vx, vy+1, vz+1, nVoxels, density), 
+                         D(vx+1, vy+1, vz+1, nVoxels, density));
+    float d0 = Lerp(dy, d00, d10);
+    float d1 = Lerp(dy, d01, d11);
+    return Lerp(dz, d0, d1);
+}
+
+
+
+static float
+transmittance(float3 p0, float3 p1, float3 pMin,
+              float3 pMax, float sigma_t, float density[], int nVoxels[3]) {
+    float rayT0, rayT1;
+    Ray ray;
+    ray.origin = p1;
+    ray.dir = p0 - p1;
+
+    // Find the parametric t range along the ray that is inside the volume.
+    if (!IntersectP(ray, pMin, pMax, &rayT0, &rayT1))
+        return 1.;
+
+    rayT0 = std::max(rayT0, 0.f);
+
+    // Accumulate beam transmittance in tau
+    float tau = 0;
+    float rayLength = sqrtf(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
+                            ray.dir.z * ray.dir.z);
+    float stepDist = 0.2f;
+    float stepT = stepDist / rayLength;
+
+    float t = rayT0;
+    float3 pos = ray.origin + ray.dir * rayT0;
+    float3 dirStep = ray.dir * stepT;
+    while (t < rayT1) {
+        tau += stepDist * sigma_t * Density(pos, pMin, pMax, density, nVoxels);
+        pos = pos + dirStep;
+        t += stepT;
+    }
+
+    return expf(-tau);
+}
+
+
+static float
+distanceSquared(float3 a, float3 b) {
+    float3 d = a-b;
+    return d.x*d.x + d.y*d.y + d.z*d.z;
+}
+
+
+static float 
+raymarch(float density[], int nVoxels[3], const Ray &ray) {
+    float rayT0, rayT1;
+    float3 pMin(.3f, -.2f, .3f), pMax(1.8f, 2.3f, 1.8f);
+    float3 lightPos(-1.f, 4.f, 1.5f);
+
+    if (!IntersectP(ray, pMin, pMax, &rayT0, &rayT1))
+        return 0.;
+
+    rayT0 = std::max(rayT0, 0.f);
+
+    // Parameters that define the volume scattering characteristics and
+    // sampling rate for raymarching
+    float Le = .25f;           // Emission coefficient
+    float sigma_a = 10;        // Absorption coefficient
+    float sigma_s = 10;        // Scattering coefficient
+    float stepDist = 0.025f;   // Ray step amount
+    float lightIntensity = 40; // Light source intensity
+
+    float tau = 0.f;  // accumulated beam transmittance
+    float L = 0;      // radiance along the ray
+    float rayLength = sqrtf(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
+                            ray.dir.z * ray.dir.z);
+    float stepT = stepDist / rayLength;
+
+    float t = rayT0;
+    float3 pos = ray.origin + ray.dir * rayT0;
+    float3 dirStep = ray.dir * stepT;
+    while (t < rayT1) {
+        float d = Density(pos, pMin, pMax, density, nVoxels);
+
+        // terminate once attenuation is high
+        float atten = expf(-tau);
+        if (atten < .005f)
+            break;
+
+        // direct lighting
+        float Li = lightIntensity / distanceSquared(lightPos, pos) * 
+            transmittance(lightPos, pos, pMin, pMax, sigma_a + sigma_s,
+                          density, nVoxels);
+        L += stepDist * atten * d * sigma_s * (Li + Le);
+
+        // update beam transmittance
+        tau += stepDist * (sigma_a + sigma_s) * d;
+
+        pos = pos + dirStep;
+        t += stepT;
+    }
+
+    // Gamma correction
+    return powf(L, 1.f / 2.2f);
+}
+
+
+void
+volume(float density[], int nVoxels[3], const float raster2camera[4][4],
+       const float camera2world[4][4], 
+       int width, int height, float image[]) {
+    int offset = 0;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x, ++offset) {
+            Ray ray;
+            generateRay(raster2camera, camera2world, (float)x, (float)y, ray);
+            image[offset] = raymarch(density, nVoxels, ray);
+        }
+    }
+}
+#endif // VOLUME
+
 #endif // CPPSPMD
 
 #ifdef ISPC
@@ -602,6 +1182,10 @@ struct mandelbrot : spmd_kernel
 #ifdef MANDELBROT
 #include "mandelbrot.ispc.h"
 #endif // MANDELBROT
+
+#ifdef VOLUME
+#include "volume.ispc.h"
+#endif // VOLUME
 
 #endif // ISPC
 
@@ -730,3 +1314,117 @@ int main()
     writePPM(buf, width, height, "mandelbrot.ppm");
 }
 #endif // MANDELBROT
+
+#ifdef VOLUME
+/* Write a PPM image file with the image */
+static void
+writePPM(float *buf, int width, int height, const char *fn) {
+    FILE *fp = fopen(fn, "wb");
+    fprintf(fp, "P6\n");
+    fprintf(fp, "%d %d\n", width, height);
+    fprintf(fp, "255\n");
+    for (int i = 0; i < width*height; ++i) {
+        float v = buf[i] * 255.f;
+        if (v < 0.f) v = 0.f;
+        else if (v > 255.f) v = 255.f;
+        unsigned char c = (unsigned char)v;
+        for (int j = 0; j < 3; ++j)
+            fputc(c, fp);
+    }
+    fclose(fp);
+    printf("Wrote image file %s\n", fn);
+}
+
+/* Load image and viewing parameters from a camera data file.
+   FIXME: we should add support to be able to specify viewing parameters
+   in the program here directly. */
+static void
+loadCamera(const char *fn, int *width, int *height, float raster2camera[4][4],
+           float camera2world[4][4]) {
+    FILE *f = fopen(fn, "r");
+    if (!f) {
+        perror(fn);
+        exit(1);
+    }
+    if (fscanf(f, "%d %d", width, height) != 2) {
+        fprintf(stderr, "Unexpected end of file in camera file\n");
+        exit(1);
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            if (fscanf(f, "%f", &raster2camera[i][j]) != 1) {
+                fprintf(stderr, "Unexpected end of file in camera file\n");
+                exit(1);
+            }
+        }
+    }
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            if (fscanf(f, "%f", &camera2world[i][j]) != 1) {
+                fprintf(stderr, "Unexpected end of file in camera file\n");
+                exit(1);
+            }
+        }
+    }
+    fclose(f);
+}
+
+
+/* Load a volume density file.  Expects the number of x, y, and z samples
+   as the first three values (as integer strings), then x*y*z
+   floating-point values (also as strings) to give the densities.  */
+static float *
+loadVolume(const char *fn, int n[3]) {
+    FILE *f = fopen(fn, "r");
+    if (!f) {
+        perror(fn);
+        exit(1);
+    }
+
+    if (fscanf(f, "%d %d %d", &n[0], &n[1], &n[2]) != 3) {
+        fprintf(stderr, "Couldn't find resolution at start of density file\n");
+        exit(1);
+    }
+
+    int count = n[0] * n[1] * n[2];
+    float *v = new float[count];
+    for (int i = 0; i < count; ++i) {
+        if (fscanf(f, "%f", &v[i]) != 1) {
+            fprintf(stderr, "Unexpected end of file at %d'th density value\n", i);
+            exit(1);
+        }
+    }
+
+    return v;
+}
+
+
+int main(int argc, char *argv[]) {
+    // Load viewing data and the volume density data
+    int width, height;
+    float raster2camera[4][4], camera2world[4][4];
+    loadCamera("volume_assets/camera.dat", &width, &height, raster2camera, camera2world);
+    float *image = new float[width*height];
+
+    int n[3];
+    float *density = loadVolume("volume_assets/density_lowres.vol", n);
+
+#ifdef SCALAR
+    volume(density, n, raster2camera, camera2world,
+           width, height, image);
+#endif // SCALAR
+
+#ifdef CPPSPMD
+    volume(density, n, raster2camera, camera2world,
+        width, height, image);
+#endif // CPPSPMD
+
+#ifdef ISPC
+    ispc::volume(density, n, raster2camera, camera2world,
+                 width, height, image);
+#endif // ISPC
+
+    writePPM(image, width, height, "volume.ppm");
+}
+#endif // VOLUME
