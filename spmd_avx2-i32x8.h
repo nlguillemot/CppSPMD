@@ -78,6 +78,10 @@ struct spmd_kernel
             : _value(value)
         { }
 
+        vbool(bool value)
+            : _value(_mm256_set1_epi32(value ? ~0 : 0))
+        { }
+
     private:
         // assignment must be masked
         vbool& operator=(const vbool&);
@@ -107,7 +111,8 @@ struct spmd_kernel
             : _value(_mm256_set1_ps(value))
         { }
 
-        vfloat(int value)
+        // this basically doesn't work because ints get implicitly converted to float anyways. :/:/
+        explicit vfloat(int value)
             : _value(_mm256_set1_ps((float)value))
         { }
 
@@ -296,11 +301,15 @@ struct spmd_kernel
             : _value(_mm256_set1_epi32(value))
         { }
 
-        vint(const vfloat& other)
+        explicit vint(float value)
+            : _value(_mm256_set1_epi32((int)value))
+        { }
+
+        explicit vint(const vfloat& other)
             : _value(_mm256_cvtps_epi32(other._value))
         { }
 
-        operator vbool() const
+        explicit operator vbool() const
         {
             return vbool{
                 _mm256_xor_si256(
@@ -308,7 +317,7 @@ struct spmd_kernel
                     _mm256_cmpeq_epi32(_value, _mm256_setzero_si256())) };
         }
 
-        operator vfloat() const
+        explicit operator vfloat() const
         {
             return vfloat{ _mm256_cvtepi32_ps(_value) };
         }
@@ -367,12 +376,12 @@ struct spmd_kernel
             : _value(value)
         { }
 
-        operator vfloat() const
+        explicit operator vfloat() const
         {
             return vfloat{ _mm256_cvtepi32_ps(_value) };
         }
 
-        operator vint() const
+        explicit operator vint() const
         {
             return vint{ _value };
         }
@@ -721,14 +730,104 @@ vbool operator&&(const vbool& a, const vbool& b)
     return vbool{ _mm256_and_si256(a._value, b._value) };
 }
 
+vfloat operator+(const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm256_add_ps(a._value, b._value) };
+}
+
+vfloat operator-(const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm256_sub_ps(a._value, b._value) };
+}
+
+vfloat operator+(const vfloat& a, float b)
+{
+    return a + vfloat(b);
+}
+
+vfloat operator+(float a, const vfloat& b)
+{
+    return vfloat(a) + b;
+}
+
+vfloat operator-(const vfloat& a, const vint& b)
+{
+    return a - vfloat(b);
+}
+
+vfloat operator-(const vint& a, const vfloat& b)
+{
+    return vfloat(a) - b;
+}
+
+vfloat operator-(const vfloat& a, int b)
+{
+    return a - vfloat(b);
+}
+
+vfloat operator-(int a, const vfloat& b)
+{
+    return vfloat(a) - b;
+}
+
+vfloat operator-(const vfloat& a, float b)
+{
+    return a - vfloat(b);
+}
+
+vfloat operator-(float a, const vfloat& b)
+{
+    return vfloat(a) - b;
+}
+
 vfloat operator*(const vfloat& a, const vfloat& b)
 {
     return vfloat{ _mm256_mul_ps(a._value, b._value) };
 }
 
+vfloat operator*(const vfloat& a, int b)
+{
+    return a * vfloat(b);
+}
+
+vfloat operator*(int a, const vfloat& b)
+{
+    return vfloat(a) * b;
+}
+
+vfloat operator*(const vfloat& a, float b)
+{
+    return a * vfloat(b);
+}
+
+vfloat operator*(float a, const vfloat& b)
+{
+    return vfloat(a) * b;
+}
+
 vfloat operator/(const vfloat& a, const vfloat& b)
 {
     return vfloat{ _mm256_div_ps(a._value, b._value) };
+}
+
+vfloat operator/(const vfloat& a, int b)
+{
+    return a / vfloat(b);
+}
+
+vfloat operator/(int a, const vfloat& b)
+{
+    return vfloat(a) / b;
+}
+
+vfloat operator/(const vfloat& a, float b)
+{
+    return a / vfloat(b);
+}
+
+vfloat operator/(float a, const vfloat& b)
+{
+    return vfloat(a) / b;
 }
 
 vfloat operator-(const vfloat& v)
@@ -816,6 +915,14 @@ vfloat clamp(const vfloat& v, const vfloat& a, const vfloat& b)
     return vfloat{ _mm256_or_ps(_mm256_and_ps(okmask, v._value), _mm256_or_ps(_mm256_and_ps(lomask, a._value), _mm256_and_ps(himask, b._value))) };
 }
 
+vint clamp(const vint& v, const vint& a, const vint& b)
+{
+    __m256i lomask = _mm256_cmpgt_epi32(a._value, v._value);
+    __m256i himask = _mm256_cmpgt_epi32(v._value, b._value);
+    __m256i okmask = _mm256_andnot_si256(_mm256_or_si256(lomask, himask), _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()));
+    return vint{ _mm256_or_si256(_mm256_and_si256(okmask, v._value), _mm256_or_si256(_mm256_and_si256(lomask, a._value), _mm256_and_si256(himask, b._value))) };
+}
+
 vfloat fma(const vfloat& a, const vfloat& b, const vfloat& c)
 {
     return vfloat{ _mm256_fmadd_ps(a._value, b._value, c._value) };
@@ -846,24 +953,24 @@ lint operator+(const lint& a, int b)
     return lint{ _mm256_add_epi32(a._value, _mm256_set1_epi32(b)) };
 }
 
-vint operator*(const lint& a, const vint& b)
+vfloat operator+(float a, const lint& b)
 {
-    return vint(a) * b;
+    return vfloat(a) + vfloat(b);
 }
 
-vint operator*(const vint& a, const lint& b)
+vfloat operator+(const lint& a, float b)
 {
-    return a * vint(b);
+    return vfloat(a) + vfloat(b);
 }
 
-vfloat operator+(const vfloat& a, const vfloat& b)
+vfloat operator*(const lint& a, float b)
 {
-    return vfloat{ _mm256_add_ps(a._value, b._value) };
+    return vfloat(a) * vfloat(b);
 }
 
-vfloat operator-(const vfloat& a, const vfloat& b)
+vfloat operator*(float b, const lint& a)
 {
-    return vfloat{ _mm256_sub_ps(a._value, b._value) };
+    return vfloat(a) * vfloat(b);
 }
 
 vint operator&(const vint& a, const vint& b)
@@ -896,10 +1003,30 @@ vint operator+(const vint& a, const vint& b)
     return vint{ _mm256_add_epi32(a._value, b._value) };
 }
 
+vint operator+(const vint& a, int b)
+{
+    return a + vint(b);
+}
+
+vint operator+(int a, const vint& b)
+{
+    return vint(a) + b;
+}
+
 vint operator*(const vint& a, const vint& b)
 {
     // should this return a vlong?
     return vint{ _mm256_mullo_epi32(a._value, b._value) };
+}
+
+vint operator*(const vint& a, int b)
+{
+    return a * vint(b);
+}
+
+vint operator*(int a, const vint& b)
+{
+    return vint(a) * b;
 }
 
 vbool operator==(const lint& a, const lint& b)

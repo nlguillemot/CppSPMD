@@ -685,7 +685,7 @@ struct Grad : spmd_kernel
 #endif
         vfloat u = spmd_ternary(h < 8 || h == 12 || h == 13, dx, dy);
         vfloat v = spmd_ternary(h < 4 || h == 12 || h == 13, dy, dz);
-        return spmd_ternary(h & 1, -u, u) + spmd_ternary(h & 2, -v, v);
+        return spmd_ternary(vbool(h & 1), -u, u) + spmd_ternary(vbool(h & 2), -v, v);
     }
 };
 
@@ -806,7 +806,7 @@ struct noise : spmd_kernel
                 vfloat x = x0 + (i + programIndex) * dx;
                 vfloat y = y0 + j * dy;
 
-                lint index = (j * width + i + programIndex);
+                lint index = j * width + i + programIndex;
                 store(index[output], spmd_call<Turbulence>(x, y, 0.6f, 8));
             }
         }
@@ -929,8 +929,8 @@ struct vfloat3
     vfloat3 operator/(const vfloat3& f2) const {
         return vfloat3(x / f2.x, y / f2.y, z / f2.z);
     }
-    vfloat operator[](int i) const { return (&x)[i]; }
-    vfloat operator[](int i) { return (&x)[i]; }
+    const vfloat& operator[](int i) const { return (&x)[i]; }
+    vfloat& operator[](int i) { return (&x)[i]; }
 };
 
 #ifdef _MSC_VER
@@ -962,8 +962,8 @@ struct float3 {
     float3 operator/(const float3 &f2) const {
         return float3(x / f2.x, y / f2.y, z / f2.z);
     }
-    float operator[](int i) const { return (&x)[i]; }
-    float &operator[](int i) { return (&x)[i]; }
+    const float& operator[](int i) const { return (&x)[i]; }
+    float& operator[](int i) { return (&x)[i]; }
 
     float x, y, z;
     float pad;  // match padding/alignment of ispc version 
@@ -1079,7 +1079,7 @@ struct D : spmd_kernel
         vint yy = clamp(y, 0, nVoxels[1]-1);
         vint zz = clamp(z, 0, nVoxels[2]-1);
 
-        return load((zz*nVoxels[0]*nVoxels[1] + yy*nVoxels[0] + xx)[density]);
+        return load((zz * nVoxels[0] * nVoxels[1] + yy * nVoxels[0] + xx)[density]);
     }
 };
 
@@ -1278,7 +1278,7 @@ struct volume_tile : spmd_kernel
                     // Use viewing parameters to compute the corresponding ray
                     // for the pixel
                     vRay ray;
-                    spmd_call<generateRay>(raster2camera, camera2world, xo, yo, ray);
+                    spmd_call<generateRay>(raster2camera, camera2world, vfloat(xo), vfloat(yo), ray);
 
                     // And raymarch through the volume to compute the pixel's
                     // value
@@ -1377,7 +1377,7 @@ int main()
 
     float *buf = new float[width*height];
 
-    int num_runs = 100;
+    int num_runs = 1;
 
     for (int i = 0; i < num_runs; i++)
     {
@@ -1429,7 +1429,7 @@ int main()
     int maxIterations = 256;
     int *buf = new int[width*height];
 
-    int num_runs = 1000;
+    int num_runs = 1;
 
     for (int i = 0; i < num_runs; i++)
     {
