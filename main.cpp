@@ -1098,6 +1098,7 @@ struct Density : spmd_kernel
         vfloat result;
         spmd_if(!spmd_call<Inside>(Pobj, pMin, pMax), [&] {
             store(result, 0);
+            spmd_return();
         });
 
         if (!any(exec))
@@ -1141,6 +1142,7 @@ struct transmittance : vfloat3_mixin<spmd_kernel>
         // Find the parametric t range along the ray that is inside the volume.
         spmd_if(!spmd_call<IntersectP>(ray, pMin, pMax, rayT0, rayT1), [&] {
             store(result, 1.0f);
+            spmd_return();
         });
 
         if (!any(exec))
@@ -1188,6 +1190,7 @@ struct raymarch : vfloat3_mixin<spmd_kernel>
 
         spmd_if(!spmd_call<IntersectP>(ray, pMin, pMax, rayT0, rayT1), [&] {
             store(result, 0.0f);
+            spmd_return();
         });
         
         if (!any(exec))
@@ -1254,10 +1257,10 @@ struct volume_tile : spmd_kernel
        result into the image[] array.
      */
     void _call(int x0, int y0, int x1,
-         int y1, float density[], int nVoxels[3], 
-         const float raster2camera[4][4],
-         const float camera2world[4][4], 
-         int width, int height, float image[]) {
+               int y1, float density[], int nVoxels[3], 
+               const float raster2camera[4][4],
+               const float camera2world[4][4], 
+               int width, int height, float image[]) {
         // Work on 4x4=16 pixel big tiles of the image.  This function thus
         // implicitly assumes that both (x1-x0) and (y1-y0) are evenly divisble
         // by 4.
