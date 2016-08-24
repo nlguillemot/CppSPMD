@@ -515,7 +515,7 @@ struct mandel : spmd_kernel
         vfloat z_re = c_re, z_im = c_im;
         vint i;
 #ifdef SPMD_MANDELBROT_OPTIMIZATION
-        spmd_for([&] { i._value = _mm256_setzero_si256();  }, [&] { return i < count; }, [&] { i._value = (i + 1)._value; }, [&] {
+        spmd_for([&] { i._value = _mm256_setzero_si256();  }, [&] { return i < count; }, [&] { store(i, i + 1); }, [&] {
 #else
         spmd_for([&] { store(i, 0);  }, [&] { return i < count; }, [&] { store(i, i + 1); }, [&] {
 #endif

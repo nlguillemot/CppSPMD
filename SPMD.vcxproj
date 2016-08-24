@@ -191,6 +191,23 @@
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)mandelbrot.ispc.obj;mandelbrot.ispc.h</Outputs>
     </CustomBuild>
   </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="volume.ispc">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ispc.exe volume.ispc -o $(IntDir)volume.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h volume.ispc.h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">ispc.exe volume.ispc -o $(IntDir)volume.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h volume.ispc.h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">ispc.exe volume.ispc -o $(IntDir)volume.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h volume.ispc.h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ispc.exe volume.ispc -o $(IntDir)volume.ispc.obj --arch=x86-64 --target=avx2-i32x8 -h volume.ispc.h</Command>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building volume.ispc</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">Building volume.ispc</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">Building volume.ispc</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building volume.ispc</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)volume.ispc.obj;volume.ispc.h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseAVX2|x64'">$(IntDir)volume.ispc.obj;volume.ispc.h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugAVX2|x64'">$(IntDir)volume.ispc.obj;volume.ispc.h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)volume.ispc.obj;volume.ispc.h</Outputs>
+    </CustomBuild>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
