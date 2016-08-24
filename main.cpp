@@ -266,9 +266,9 @@ static int mandel(float c_re, float c_im, int count) {
     return i;
 }
 
-void mandelbrot_serial(float x0, float y0, float x1, float y1,
-                       int width, int height, int maxIterations,
-                       int output[])
+void mandelbrot(float x0, float y0, float x1, float y1,
+                int width, int height, int maxIterations,
+                int output[])
 {
     float dx = (x1 - x0) / width;
     float dy = (y1 - y0) / height;
@@ -517,7 +517,7 @@ struct mandel : spmd_kernel
                 spmd_break();
             });
 
-            vfloat new_re = z_re*z_re - z_im*z_im;
+            vfloat new_re = z_re * z_re - z_im * z_im;
             vfloat new_im = 2.f * z_re * z_im;
             spmd_unmasked([&] {
                 store(z_re, c_re + new_re);
@@ -633,13 +633,13 @@ int main()
 
     float *buf = new float[width*height];
 
-    int num_iterations = 100;
+    int num_runs = 100;
 
-    for (int i = 0; i < num_iterations; i++)
+    for (int i = 0; i < num_runs; i++)
     {
 #ifdef SCALAR
         noise(x0, y0, x1, y1, width, height, buf);
-#endif
+#endif // SCALAR
 
 #ifdef CPPSPMD
         spmd_call<noise>(x0, y0, x1, y1, width, height, buf);
@@ -685,17 +685,22 @@ int main()
     int maxIterations = 256;
     int *buf = new int[width*height];
 
+    int num_runs = 1000;
+
+    for (int i = 0; i < num_runs; i++)
+    {
 #ifdef SCALAR
-    mandelbrot(x0, y0, x1, y1, width, height, maxIterations, buf);
+        mandelbrot(x0, y0, x1, y1, width, height, maxIterations, buf);
 #endif // SCALAR
 
 #ifdef CPPSPMD
-    spmd_call<mandelbrot>(x0, y0, x1, y1, width, height, maxIterations, buf);
+        spmd_call<mandelbrot>(x0, y0, x1, y1, width, height, maxIterations, buf);
 #endif // CPPSPMD
 
 #ifdef ISPC
-    ispc::mandelbrot(x0, y0, x1, y1, width, height, maxIterations, buf);
+        ispc::mandelbrot(x0, y0, x1, y1, width, height, maxIterations, buf);
 #endif // ISPC
+    }
 
     writePPM(buf, width, height, "mandelbrot.ppm");
 }

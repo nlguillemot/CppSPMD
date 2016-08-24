@@ -14,6 +14,8 @@ struct spmd_kernel
     {
         __m256i _mask;
 
+        exec_t() = default;
+
         explicit exec_t(const __m256i& mask)
             : _mask(mask)
         { }
@@ -34,21 +36,23 @@ struct spmd_kernel
     // forward declarations of non-member functions
     friend exec_t operator&(const exec_t& a, const exec_t& b);
     friend exec_t operator|(const exec_t& a, const exec_t& b);
+    friend exec_t operator^(const exec_t& a, const exec_t& b);
     friend bool any(const exec_t& e);
 
-    // the execution mask at entry of the kernel
+    // the execution mask at the kernel-level
+    // initial value is based on the execution mask of the caller
+    // it is also updated spmd_return() is called
     exec_t _kernel_exec;
 
-    // the execution mask at the current point of varying control flow
+    // the execution mask at the current point of varying control flow inside a kernel
+    // maintains execution mask of things like spmd_if(), spmd_for(), spmd_break()...
+    // generally represents the state of the current loop's execution
     exec_t _internal_exec;
-
-    // the OR of all lanes which hit a "spmd_break" in the current loop
-    exec_t _break_mask;
 
     // the OR of all lanes which hit a "spmd_continue" in the current loop
     exec_t _continue_mask;
 
-    // current control flow's execution mask (= _kernel_exec & _internal_exec)
+    // current control flow's execution mask (= _internal_exec & _kernel_exec)
     exec_t exec;
 
     // this is basically the constructor
@@ -58,6 +62,7 @@ struct spmd_kernel
     {
         _kernel_exec = kernel_exec;
         _internal_exec = exec_t::all_on();
+        _continue_mask = exec_t::all_off();
         exec = kernel_exec;
     }
 
@@ -317,13 +322,15 @@ struct spmd_kernel
     template<class IfBody>
     void spmd_if(const vbool& cond, const IfBody& ifBody)
     {
-        // apply "if" mask
+        // save old execution mask
+        exec_t old_internal_exec = _internal_exec;
+
+        // get the condition mask and use it to mask the internal control flow
         exec_t cond_exec(cond);
         exec_t pre_if_internal_exec = _internal_exec & cond_exec;
-        exec_t pre_if_exec = exec & cond_exec;
         
-        _internal_exec = pre_if_internal_exec;
-        exec = pre_if_exec;
+        _internal_exec = _internal_exec & cond_exec;
+        exec = exec & cond_exec;
 
         if (any(exec)) // "all off" optimization
         {
@@ -333,7 +340,7 @@ struct spmd_kernel
         // propagate any lanes that were shut down inside the if
         // (assuming lanes haven't "come back to life" at the end of an "if")
         // eg: spmd_if(x, [&]{ spmd_break(); });
-        _internal_exec = andnot(pre_if_internal_exec ^ _internal_exec, _internal_exec);
+        _internal_exec = andnot(pre_if_internal_exec ^ _internal_exec, old_internal_exec);
         exec = _kernel_exec & _internal_exec;
     }
 
@@ -352,7 +359,6 @@ struct spmd_kernel
     void spmd_for(const ForInitBody& forInitBody, const ForCondBody& forCondBody, const ForIncrBody& forIncrBody, const ForBody& forBody)
     {
         // save old execution mask
-        exec_t old_exec = exec;
         exec_t old_internal_exec = _internal_exec;
 
         // execute the initialization clause of the loop
@@ -361,10 +367,7 @@ struct spmd_kernel
         // save the state of the previous loop (assuming there was one)
         // then start fresh for this loop
         exec_t old_continue_mask = _continue_mask;
-        exec_t old_break_mask = _break_mask;
-        
         _continue_mask = exec_t::all_off();
-        _break_mask = exec_t::all_off();
 
         // start looping
         for (;;)
@@ -390,62 +393,83 @@ struct spmd_kernel
             forIncrBody();
         }
 
-        // if any lanes hit a break statement, they were shut off in the loop.
-        // now that the loop is done, their execution can be restored.
-        _internal_exec = _internal_exec | _break_mask;
+        // now that the loop is done,
+        // can restore lanes that were "break"'d, or that failed the loop condition.
+        _internal_exec = old_internal_exec;
         exec = _internal_exec & _kernel_exec;
 
-        // restore the continue/break of the previous loop in the stack
+        // restore the continue mask of the previous loop in the stack
         _continue_mask = old_continue_mask;
-        _break_mask = old_break_mask;
     }
 
     template<class ForeachBody>
     void spmd_foreach(int first, int last, const ForeachBody& foreachBody)
     {
-        // could allow this, just too lazy right now.
+        // could probably allow this with a bit of effort, just too lazy right now.
         assert(first <= last);
 
+        // save old execution mask
+        exec_t old_internal_exec = _internal_exec;
+
+        // save the state of the previous loop (assuming there was one)
+        // then start fresh for this loop
+        exec_t old_continue_mask = _continue_mask;
+        _continue_mask = exec_t::all_off();
+
         // number of loops that don't require loop tail masking
-        int numFullLoops = ((last - first) / programCount) * programCount;
+        int num_full_simd_loops = ((last - first) / programCount);
 
         // number of loops that require loop tail masking
         // happens when the loop count is not a multiple of programCount)
-        int numPartialLoops = (last - first) % programCount;
+        int num_partial_loops = (last - first) % programCount;
 
         // do every loop that doesn't need to be tail masked
-        __m256i loopIndex = _mm256_add_epi32(programIndex._value, _mm256_set1_epi32(first));
-        for (int i = 0; i < numFullLoops; i += programCount)
+        lint loopIndex = first + programIndex;
+        for (int simd_loop_i = 0; simd_loop_i < num_full_simd_loops; simd_loop_i++)
         {
-            foreachBody(lint{ loopIndex });
-            loopIndex = _mm256_add_epi32(loopIndex, _mm256_set1_epi32(programCount));
+            // if no lanes are active anymore, stop looping
+            if (!any(exec))
+                break;
+
+            // invoke the body with the current loop index
+            foreachBody(loopIndex);
+
+            // reactivate all lanes that hit a "continue"
+            _internal_exec = _internal_exec | _continue_mask;
+            exec = _internal_exec & _kernel_exec;
+            _continue_mask = exec_t::all_off();
+            
+            // increment the index for each lane to the next work item
+            loopIndex._value = (loopIndex + programCount)._value;
         }
 
-        // do a partial loop if necessary (if loop count is not a multiple of programCount)
-        if (numPartialLoops > 0)
+        // do a partial loop if the loop wasn't a multiple of programCount and the loop isn't just a zombie by now
+        if (num_partial_loops > 0 && any(exec))
         {
-            // save old execution mask
-            exec_t old_exec = exec;
-
             // apply mask for partial loop
-            exec = exec & exec_t{ _mm256_castsi256_ps(_mm256_cmpgt_epi32(_mm256_set1_epi32(numPartialLoops), programIndex._value)) };
+            exec_t partial_loop_mask = exec_t{ _mm256_cmpgt_epi32(_mm256_set1_epi32(num_partial_loops), programIndex._value) };
+            _internal_exec = _internal_exec & partial_loop_mask;
+            exec = exec & partial_loop_mask;
 
-            // do the partial loop
-            foreachBody(lint{ loopIndex });
-
-            // restore execution mask
-            exec = old_exec;
+            // do the partial loop for the extra elements
+            foreachBody(loopIndex);
         }
+
+        // now that the loop is done,
+        // can restore lanes that were "break"'d, or that failed the loop condition.
+        _internal_exec = old_internal_exec;
+        exec = _internal_exec & _kernel_exec;
+
+        // restore the continue mask of the previous loop in the stack
+        _continue_mask = old_continue_mask;
     }
 
     void spmd_break()
     {
         // this should only be called inside loops. A check for this would be good.
 
-        // set currently active lanes as "break"'d
-        _break_mask = _break_mask | _internal_exec;
-
         // turn off all active lanes so nothing happens after the break.
+        // this state will be restored after the current loop is done
         _internal_exec = exec_t::all_off();
         exec = exec_t::all_off();
     }
@@ -530,7 +554,9 @@ spmd_kernel::vbool operator!(const spmd_kernel::vbool& v)
 
 spmd_kernel::exec_t::exec_t(const spmd_kernel::vbool& b)
 {
-    _mask = _mm256_cmpeq_epi32(b._value, _mm256_setzero_si256());
+    _mask = _mm256_xor_si256(
+        _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()),
+        _mm256_cmpeq_epi32(b._value, _mm256_setzero_si256()));
 }
 
 spmd_kernel::exec_t operator&(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
@@ -541,6 +567,11 @@ spmd_kernel::exec_t operator&(const spmd_kernel::exec_t& a, const spmd_kernel::e
 spmd_kernel::exec_t operator|(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
 {
     return spmd_kernel::exec_t{ _mm256_or_si256(a._mask, b._mask) };
+}
+
+spmd_kernel::exec_t operator^(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
+{
+    return spmd_kernel::exec_t{ _mm256_xor_si256(a._mask, b._mask) };
 }
 
 bool any(const spmd_kernel::exec_t& e)
@@ -639,6 +670,11 @@ spmd_kernel::vfloat fnms(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat
 spmd_kernel::lint operator+(int a, const spmd_kernel::lint& b)
 {
     return spmd_kernel::lint{ _mm256_add_epi32(_mm256_set1_epi32(a), b._value) };
+}
+
+spmd_kernel::lint operator+(const spmd_kernel::lint& a, int b)
+{
+    return spmd_kernel::lint{ _mm256_add_epi32(a._value, _mm256_set1_epi32(b)) };
 }
 
 spmd_kernel::vfloat operator+(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
