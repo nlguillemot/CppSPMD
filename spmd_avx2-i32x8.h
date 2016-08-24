@@ -161,6 +161,41 @@ struct spmd_kernel
         }
     }
 
+    // reference to a vint stored randomly in memory
+    struct vfloat_vref
+    {
+        float* _value;
+        __m256i _vindex;
+
+    private:
+        // ref-ref assignment must be masked both ways
+        vfloat_vref& operator=(const vfloat_vref&);
+    };
+
+    // scatter
+    vfloat_vref& store(vfloat_vref& dst, const vfloat& src)
+    {
+        __declspec(align(32)) int vindex[8];
+        _mm256_store_si256((__m256i*)vindex, dst._vindex);
+
+        __declspec(align(32)) float stored[8];
+        _mm256_store_ps(stored, src._value);
+
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
+        for (int i = 0; i < 8; i++)
+        {
+            if (mask & (1 << i))
+                dst._value[vindex[i]] = stored[i];
+        }
+        return dst;
+    }
+
+    // gather
+    vfloat load(const vfloat_vref& src)
+    {
+        return vfloat{ _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src._value, src._vindex, _mm256_castsi256_ps(exec._mask), 4) };
+    }
+
     // reference to a vint stored linearly in memory
     struct vint_lref
     {
@@ -196,6 +231,32 @@ struct spmd_kernel
         {
             // "all on" optimization: vector load
             return vint{ _mm256_loadu_si256((__m256i*)src._value) };
+        }
+        else
+        {
+            // masked load
+            return vint{ _mm256_maskload_epi32(src._value, exec._mask) };
+        }
+    }
+
+    // reference to a const vint stored linearly in memory
+    struct cvint_lref
+    {
+        const int* _value;
+
+    private:
+        // ref-ref assignment must be masked both ways
+        cvint_lref& operator=(const cvint_lref&);
+    };
+
+    // gather
+    vint load(const cvint_lref& src)
+    {
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
+        if (mask == 0b11111111)
+        {
+            // "all on" optimization: vector load
+            return vint{ _mm256_loadu_si256((const __m256i*)src._value) };
         }
         else
         {
@@ -253,10 +314,16 @@ struct spmd_kernel
             return vint_vref{ ptr, _value };
         }
 
+        vfloat_vref operator[](float* ptr) const
+        {
+            return vfloat_vref{ ptr, _value };
+        }
+
     private:
         // assignment must be masked
         vint& operator=(const vint&);
     };
+
 
     vint& store(vint& dst, const vint& src)
     {
@@ -301,6 +368,11 @@ struct spmd_kernel
             return vfloat{ _mm256_cvtepi32_ps(_value) };
         }
 
+        operator vint() const
+        {
+            return vint{ _value };
+        }
+
         vfloat_lref operator[](float* ptr) const
         {
             return vfloat_lref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
@@ -309,6 +381,11 @@ struct spmd_kernel
         vint_lref operator[](int* ptr) const
         {
             return vint_lref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
+        }
+
+        cvint_lref operator[](const int* ptr) const
+        {
+            return cvint_lref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
         }
 
     private:
@@ -541,182 +618,209 @@ struct spmd_kernel
     }
 };
 
-spmd_kernel::vbool operator!(const spmd_kernel::vbool& v)
+using exec_t = spmd_kernel::exec_t;
+using vbool = spmd_kernel::vbool;
+using vfloat = spmd_kernel::vfloat;
+using vfloat_lref = spmd_kernel::vfloat_lref;
+using vfloat_vref = spmd_kernel::vfloat_vref;
+using vint = spmd_kernel::vint;
+using vint_lref = spmd_kernel::vint_lref;
+using cvint_lref = spmd_kernel::cvint_lref;
+using vint_vref = spmd_kernel::vint_vref;
+using lint = spmd_kernel::lint;
+
+vbool operator!(const vbool& v)
 {
-    return spmd_kernel::vbool{
+    return vbool{
         _mm256_xor_si256(
             _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()),
             v._value) };
 }
 
-spmd_kernel::exec_t::exec_t(const spmd_kernel::vbool& b)
+exec_t::exec_t(const vbool& b)
 {
     _mask = _mm256_xor_si256(
         _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()),
         _mm256_cmpeq_epi32(b._value, _mm256_setzero_si256()));
 }
 
-spmd_kernel::exec_t operator&(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
+exec_t operator&(const exec_t& a, const exec_t& b)
 {
-    return spmd_kernel::exec_t{ _mm256_and_si256(a._mask, b._mask) };
+    return exec_t{ _mm256_and_si256(a._mask, b._mask) };
 }
 
-spmd_kernel::exec_t operator|(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
+exec_t operator|(const exec_t& a, const exec_t& b)
 {
-    return spmd_kernel::exec_t{ _mm256_or_si256(a._mask, b._mask) };
+    return exec_t{ _mm256_or_si256(a._mask, b._mask) };
 }
 
-spmd_kernel::exec_t operator^(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
+exec_t operator^(const exec_t& a, const exec_t& b)
 {
-    return spmd_kernel::exec_t{ _mm256_xor_si256(a._mask, b._mask) };
+    return exec_t{ _mm256_xor_si256(a._mask, b._mask) };
 }
 
-bool any(const spmd_kernel::exec_t& e)
+bool any(const exec_t& e)
 {
     return _mm256_movemask_ps(_mm256_castsi256_ps(e._mask)) != 0;
 }
 
-spmd_kernel::exec_t andnot(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
+exec_t andnot(const exec_t& a, const exec_t& b)
 {
-    return spmd_kernel::exec_t{ _mm256_andnot_si256(a._mask, b._mask) };
+    return exec_t{ _mm256_andnot_si256(a._mask, b._mask) };
 }
 
-spmd_kernel::vbool operator||(const spmd_kernel::vbool& a, const spmd_kernel::vbool& b)
+vbool operator||(const vbool& a, const vbool& b)
 {
-    return spmd_kernel::vbool{ _mm256_or_si256(a._value, b._value) };
+    return vbool{ _mm256_or_si256(a._value, b._value) };
 }
 
-spmd_kernel::vfloat operator*(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vfloat operator*(const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vfloat{ _mm256_mul_ps(a._value, b._value) };
+    return vfloat{ _mm256_mul_ps(a._value, b._value) };
 }
 
-spmd_kernel::vfloat operator/(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vfloat operator/(const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vfloat{ _mm256_div_ps(a._value, b._value) };
+    return vfloat{ _mm256_div_ps(a._value, b._value) };
 }
 
-spmd_kernel::vfloat operator-(const spmd_kernel::vfloat& v)
+vfloat operator-(const vfloat& v)
 {
-    return spmd_kernel::vfloat{ _mm256_sub_ps(_mm256_xor_ps(v._value, v._value), v._value) };
+    return vfloat{ _mm256_sub_ps(_mm256_xor_ps(v._value, v._value), v._value) };
 }
 
-spmd_kernel::vbool operator==(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vbool operator==(const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_EQ_OQ)) };
+    return vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_EQ_OQ)) };
 }
 
-spmd_kernel::vbool operator<(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vbool operator<(const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_LT_OQ)) };
+    return vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_LT_OQ)) };
 }
 
-spmd_kernel::vbool operator>(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vbool operator>(const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_GT_OQ)) };
+    return vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_GT_OQ)) };
 }
 
-spmd_kernel::vfloat spmd_ternary(const spmd_kernel::vbool& cond, const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vfloat spmd_ternary(const vbool& cond, const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vfloat{ _mm256_blendv_ps(b._value, a._value, _mm256_castsi256_ps(cond._value)) };
+    return vfloat{ _mm256_blendv_ps(b._value, a._value, _mm256_castsi256_ps(cond._value)) };
 }
 
-spmd_kernel::vfloat sqrt(const spmd_kernel::vfloat& v)
+vfloat sqrt(const vfloat& v)
 {
-    return spmd_kernel::vfloat{ _mm256_sqrt_ps(v._value) };
+    return vfloat{ _mm256_sqrt_ps(v._value) };
 }
 
-spmd_kernel::vfloat abs(const spmd_kernel::vfloat& v)
+vfloat abs(const vfloat& v)
 {
-    return spmd_kernel::vfloat{ _mm256_andnot_ps(_mm256_set1_ps(-0.0f), v._value) };
+    return vfloat{ _mm256_andnot_ps(_mm256_set1_ps(-0.0f), v._value) };
 }
 
-spmd_kernel::vfloat floor(const spmd_kernel::vfloat& v)
+vfloat floor(const vfloat& v)
 {
-    return spmd_kernel::vfloat{ _mm256_floor_ps(v._value) };
+    return vfloat{ _mm256_floor_ps(v._value) };
 }
 
-spmd_kernel::vfloat clamp(const spmd_kernel::vfloat& v, const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vfloat clamp(const vfloat& v, const vfloat& a, const vfloat& b)
 {
     __m256 lomask = _mm256_cmp_ps(v._value, a._value, _CMP_LT_OQ);
     __m256 himask = _mm256_cmp_ps(v._value, b._value, _CMP_GT_OQ);
     __m256 okmask = _mm256_andnot_ps(_mm256_or_ps(lomask, himask), _mm256_cmp_ps(_mm256_setzero_ps(), _mm256_setzero_ps(), _CMP_EQ_OQ));
-    return spmd_kernel::vfloat{ _mm256_or_ps(_mm256_and_ps(okmask, v._value), _mm256_or_ps(_mm256_and_ps(lomask, a._value), _mm256_and_ps(himask, b._value))) };
+    return vfloat{ _mm256_or_ps(_mm256_and_ps(okmask, v._value), _mm256_or_ps(_mm256_and_ps(lomask, a._value), _mm256_and_ps(himask, b._value))) };
 }
 
-spmd_kernel::vfloat fma(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+vfloat fma(const vfloat& a, const vfloat& b, const vfloat& c)
 {
-    return spmd_kernel::vfloat{ _mm256_fmadd_ps(a._value, b._value, c._value) };
+    return vfloat{ _mm256_fmadd_ps(a._value, b._value, c._value) };
 }
 
-spmd_kernel::vfloat fms(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+vfloat fms(const vfloat& a, const vfloat& b, const vfloat& c)
 {
-    return spmd_kernel::vfloat{ _mm256_fmsub_ps(a._value, b._value, c._value) };
+    return vfloat{ _mm256_fmsub_ps(a._value, b._value, c._value) };
 }
 
-spmd_kernel::vfloat fnma(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+vfloat fnma(const vfloat& a, const vfloat& b, const vfloat& c)
 {
-    return spmd_kernel::vfloat{ _mm256_fnmadd_ps(a._value, b._value, c._value) };
+    return vfloat{ _mm256_fnmadd_ps(a._value, b._value, c._value) };
 }
 
-spmd_kernel::vfloat fnms(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b, const spmd_kernel::vfloat& c)
+vfloat fnms(const vfloat& a, const vfloat& b, const vfloat& c)
 {
-    return spmd_kernel::vfloat{ _mm256_fnmsub_ps(a._value, b._value, c._value) };
+    return vfloat{ _mm256_fnmsub_ps(a._value, b._value, c._value) };
 }
 
-spmd_kernel::lint operator+(int a, const spmd_kernel::lint& b)
+lint operator+(int a, const lint& b)
 {
-    return spmd_kernel::lint{ _mm256_add_epi32(_mm256_set1_epi32(a), b._value) };
+    return lint{ _mm256_add_epi32(_mm256_set1_epi32(a), b._value) };
 }
 
-spmd_kernel::lint operator+(const spmd_kernel::lint& a, int b)
+lint operator+(const lint& a, int b)
 {
-    return spmd_kernel::lint{ _mm256_add_epi32(a._value, _mm256_set1_epi32(b)) };
+    return lint{ _mm256_add_epi32(a._value, _mm256_set1_epi32(b)) };
 }
 
-spmd_kernel::vfloat operator+(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vint operator*(const lint& a, const vint& b)
 {
-    return spmd_kernel::vfloat{ _mm256_add_ps(a._value, b._value) };
+    return vint(a) * b;
 }
 
-spmd_kernel::vfloat operator-(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+vint operator*(const vint& a, const lint& b)
 {
-    return spmd_kernel::vfloat{ _mm256_sub_ps(a._value, b._value) };
+    return a * vint(b);
 }
 
-spmd_kernel::vint operator&(const spmd_kernel::vint& a, const spmd_kernel::vint& b)
+vfloat operator+(const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vint{ _mm256_and_si256(a._value, b._value) };
+    return vfloat{ _mm256_add_ps(a._value, b._value) };
 }
 
-spmd_kernel::vbool operator==(const spmd_kernel::vint& a, const spmd_kernel::vint& b)
+vfloat operator-(const vfloat& a, const vfloat& b)
 {
-    return spmd_kernel::vbool{ _mm256_cmpeq_epi32(a._value, b._value) };
+    return vfloat{ _mm256_sub_ps(a._value, b._value) };
 }
 
-spmd_kernel::vbool operator<(const spmd_kernel::vint& a, const spmd_kernel::vint& b)
+vint operator&(const vint& a, const vint& b)
 {
-    return spmd_kernel::vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
+    return vint{ _mm256_and_si256(a._value, b._value) };
 }
 
-spmd_kernel::vint operator+(const spmd_kernel::vint& a, const spmd_kernel::vint& b)
+vbool operator==(const vint& a, const vint& b)
 {
-    return spmd_kernel::vint{ _mm256_add_epi32(a._value, b._value) };
+    return vbool{ _mm256_cmpeq_epi32(a._value, b._value) };
 }
 
-spmd_kernel::vbool operator==(const spmd_kernel::lint& a, const spmd_kernel::lint& b)
+vbool operator<(const vint& a, const vint& b)
 {
-    return spmd_kernel::vbool{ _mm256_cmpeq_epi32(a._value, b._value) };
+    return vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
 }
 
-spmd_kernel::vbool operator<(const spmd_kernel::lint& a, const spmd_kernel::lint& b)
+vint operator+(const vint& a, const vint& b)
 {
-    return spmd_kernel::vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
+    return vint{ _mm256_add_epi32(a._value, b._value) };
 }
 
-spmd_kernel::vbool operator>(const spmd_kernel::lint& a, const spmd_kernel::lint& b)
+vint operator*(const vint& a, const vint& b)
 {
-    return spmd_kernel::vbool{ _mm256_cmpgt_epi32(a._value, b._value) };
+    // should this return a vlong?
+    return vint{ _mm256_mullo_epi32(a._value, b._value) };
+}
+
+vbool operator==(const lint& a, const lint& b)
+{
+    return vbool{ _mm256_cmpeq_epi32(a._value, b._value) };
+}
+
+vbool operator<(const lint& a, const lint& b)
+{
+    return vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
+}
+
+vbool operator>(const lint& a, const lint& b)
+{
+    return vbool{ _mm256_cmpgt_epi32(a._value, b._value) };
 }
 
 template<class SPMDKernel, class... Args>
@@ -725,6 +829,6 @@ decltype(auto) spmd_call(Args&&... args)
     // This is a spmd_call from outside a spmd_kernel.
     // just call the kernel with an "all on" execution mask.
     SPMDKernel kernel;
-    kernel._init(spmd_kernel::exec_t::all_on());
+    kernel._init(exec_t::all_on());
     return kernel._call(std::forward<Args>(args)...);
 }
