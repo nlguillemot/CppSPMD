@@ -723,7 +723,7 @@ spmd_kernel::vbool operator>(const spmd_kernel::lint& a, const spmd_kernel::lint
 }
 
 template<class SPMDKernel, class... Args>
-auto spmd_call(Args&&... args)
+decltype(auto) spmd_call(Args&&... args)
 {
     // This is a spmd_call from outside a spmd_kernel.
     // just call the kernel with an "all on" execution mask.
