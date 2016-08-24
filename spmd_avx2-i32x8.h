@@ -5,6 +5,8 @@
 #include <cassert>
 #include <utility>
 
+#include "avx_mathfun_tweaked.h"
+
 struct spmd_kernel
 {
     struct vbool;
@@ -66,6 +68,8 @@ struct spmd_kernel
         exec = kernel_exec;
     }
 
+    // it is assumed that "false" is 0 (all zeros), and "true" is ~0 (all ones).
+    // operations on vbool should maintain this invariant.
     struct vbool
     {
         __m256i _value;
@@ -432,6 +436,12 @@ struct spmd_kernel
         spmd_if(!cond, elseBody);
     }
 
+    template<class WhileCondBody, class WhileBody>
+    void spmd_while(const WhileCondBody& whileCondBody, const WhileBody& whileBody)
+    {
+        // implement me!
+    }
+
     template<class ForInitBody, class ForCondBody, class ForIncrBody, class ForBody>
     void spmd_for(const ForInitBody& forInitBody, const ForCondBody& forCondBody, const ForIncrBody& forIncrBody, const ForBody& forBody)
     {
@@ -639,9 +649,7 @@ vbool operator!(const vbool& v)
 
 exec_t::exec_t(const vbool& b)
 {
-    _mask = _mm256_xor_si256(
-        _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()),
-        _mm256_cmpeq_epi32(b._value, _mm256_setzero_si256()));
+    _mask = b._value;
 }
 
 exec_t operator&(const exec_t& a, const exec_t& b)
@@ -674,6 +682,11 @@ vbool operator||(const vbool& a, const vbool& b)
     return vbool{ _mm256_or_si256(a._value, b._value) };
 }
 
+vbool operator&&(const vbool& a, const vbool& b)
+{
+    return vbool{ _mm256_and_si256(a._value, b._value) };
+}
+
 vfloat operator*(const vfloat& a, const vfloat& b)
 {
     return vfloat{ _mm256_mul_ps(a._value, b._value) };
@@ -704,6 +717,16 @@ vbool operator>(const vfloat& a, const vfloat& b)
     return vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_GT_OQ)) };
 }
 
+vbool operator<=(const vfloat& a, const vfloat& b)
+{
+    return vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_LE_OQ)) };
+}
+
+vbool operator>=(const vfloat& a, const vfloat& b)
+{
+    return vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_GE_OQ)) };
+}
+
 vfloat spmd_ternary(const vbool& cond, const vfloat& a, const vfloat& b)
 {
     return vfloat{ _mm256_blendv_ps(b._value, a._value, _mm256_castsi256_ps(cond._value)) };
@@ -722,6 +745,33 @@ vfloat abs(const vfloat& v)
 vfloat floor(const vfloat& v)
 {
     return vfloat{ _mm256_floor_ps(v._value) };
+}
+
+vfloat max(const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm256_max_ps(a._value, b._value) };
+}
+
+vfloat min(const vfloat& a, const vfloat& b)
+{
+    return vfloat{ _mm256_min_ps(a._value, b._value) };
+}
+
+vfloat exp(const vfloat& v)
+{
+    return vfloat{ exp256_ps(v._value) };
+}
+
+vfloat log(const vfloat& v)
+{
+    return vfloat{ log256_ps(v._value) };
+}
+
+vfloat pow(const vfloat& a, const vfloat& b)
+{
+    // doesn't work for negative base.
+    // fall back to system library if that is the case?
+    return exp(b * log(a));
 }
 
 vfloat clamp(const vfloat& v, const vfloat& a, const vfloat& b)
@@ -797,6 +847,16 @@ vbool operator<(const vint& a, const vint& b)
     return vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
 }
 
+vbool operator<=(const vint& a, const vint& b)
+{
+    return !vbool{ _mm256_cmpgt_epi32(a._value, b._value) };
+}
+
+vbool operator>=(const vint& a, const vint& b)
+{
+    return !vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
+}
+
 vint operator+(const vint& a, const vint& b)
 {
     return vint{ _mm256_add_epi32(a._value, b._value) };
@@ -821,6 +881,16 @@ vbool operator<(const lint& a, const lint& b)
 vbool operator>(const lint& a, const lint& b)
 {
     return vbool{ _mm256_cmpgt_epi32(a._value, b._value) };
+}
+
+vbool operator<=(const lint& a, const lint& b)
+{
+    return !vbool{ _mm256_cmpgt_epi32(a._value, b._value) };
+}
+
+vbool operator>=(const lint& a, const lint& b)
+{
+    return !vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
 }
 
 template<class SPMDKernel, class... Args>

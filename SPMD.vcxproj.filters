@@ -11,5 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="spmd_avx2-i32x8.h" />
+    <ClInclude Include="avx_mathfun_tweaked.h" />
   </ItemGroup>
 </Project>

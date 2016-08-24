@@ -135,6 +135,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="avx_mathfun_tweaked.h" />
     <ClInclude Include="spmd_avx2-i32x8.h" />
   </ItemGroup>
   <ItemGroup>

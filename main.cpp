@@ -932,6 +932,54 @@ struct vfloat3
     vfloat operator[](int i) { return (&x)[i]; }
 };
 
+struct float3 {
+    float3() = default;
+    float3(float xx, float yy, float zz)
+        : x(xx), y(yy), z(zz)
+    { }
+
+    operator vfloat3() const
+    {
+        return vfloat3(x, y, z);
+    }
+
+    float3 operator*(float f) const {
+        return float3(x*f, y*f, z*f); 
+    }
+    float3 operator-(const float3 &f2) const {
+        return float3(x - f2.x, y - f2.y, z - f2.z);
+    }
+    float3 operator*(const float3 &f2) const {
+        return float3(x*f2.x, y*f2.y, z*f2.z);
+    }
+    float3 operator+(const float3 &f2) const {
+        return float3(x + f2.x, y + f2.y, z + f2.z);
+    }
+    float3 operator/(const float3 &f2) const {
+        return float3(x / f2.x, y / f2.y, z / f2.z);
+    }
+    float operator[](int i) const { return (&x)[i]; }
+    float &operator[](int i) { return (&x)[i]; }
+
+    float x, y, z;
+    float pad;  // match padding/alignment of ispc version 
+}
+#ifndef _MSC_VER
+__attribute__((aligned(16)))
+#endif
+;
+
+template<class T>
+struct vfloat3_mixin : T
+{
+    using T::store;
+
+    vfloat3& store(vfloat3& dst, const vfloat3& src)
+    {
+        // implement me!
+    }
+};
+
 struct vRay
 {
     vfloat3 origin, dir;
@@ -939,31 +987,28 @@ struct vRay
 
 struct generateRay : spmd_kernel
 {
-    void _call(const uniform float raster2camera[4][4], 
-               const uniform float camera2world[4][4],
-               float x, float y, Ray &ray) {
+    void _call(const float raster2camera[4][4], 
+               const float camera2world[4][4],
+               const vfloat& x, const vfloat& y, vRay &ray) {
         // transform raster coordinate (x, y, 0) to camera space
-        float camx = raster2camera[0][0] * x + raster2camera[0][1] * y + raster2camera[0][3];
-        float camy = raster2camera[1][0] * x + raster2camera[1][1] * y + raster2camera[1][3];
-        float camz = raster2camera[2][3];
-        float camw = raster2camera[3][3];
-        camx /= camw;
-        camy /= camw;
-        camz /= camw;
+        vfloat camw = raster2camera[3][3];
+        vfloat camx = (raster2camera[0][0] * x + raster2camera[0][1] * y + raster2camera[0][3]) / camw;
+        vfloat camy = (raster2camera[1][0] * x + raster2camera[1][1] * y + raster2camera[1][3]) / camw;
+        vfloat camz = raster2camera[2][3] / camw;
 
-        ray.dir.x = camera2world[0][0] * camx + camera2world[0][1] * camy + camera2world[0][2] * camz;
-        ray.dir.y = camera2world[1][0] * camx + camera2world[1][1] * camy + camera2world[1][2] * camz;
-        ray.dir.z = camera2world[2][0] * camx + camera2world[2][1] * camy + camera2world[2][2] * camz;
+        store(ray.dir.x, camera2world[0][0] * camx + camera2world[0][1] * camy + camera2world[0][2] * camz);
+        store(ray.dir.y, camera2world[1][0] * camx + camera2world[1][1] * camy + camera2world[1][2] * camz);
+        store(ray.dir.z, camera2world[2][0] * camx + camera2world[2][1] * camy + camera2world[2][2] * camz);
 
-        ray.origin.x = camera2world[0][3] / camera2world[3][3];
-        ray.origin.y = camera2world[1][3] / camera2world[3][3];
-        ray.origin.z = camera2world[2][3] / camera2world[3][3];
+        store(ray.origin.x, camera2world[0][3] / camera2world[3][3]);
+        store(ray.origin.y, camera2world[1][3] / camera2world[3][3]);
+        store(ray.origin.z, camera2world[2][3] / camera2world[3][3]);
     }
 };
 
 struct Inside : spmd_kernel
 {
-    bool _call(float3 p, float3 pMin, float3 pMax) {
+    vbool _call(const vfloat3& p, const vfloat3& pMin, const vfloat3& pMax) {
         return (p.x >= pMin.x && p.x <= pMax.x &&
                 p.y >= pMin.y && p.y <= pMax.y &&
                 p.z >= pMin.z && p.z <= pMax.z);
@@ -972,197 +1017,222 @@ struct Inside : spmd_kernel
 
 struct IntersectP : spmd_kernel
 {
-    bool _call(Ray ray, float3 pMin, float3 pMax, float &hit0, float &hit1) {
-        float t0 = -1e30, t1 = 1e30;
+    vbool _call(const vRay& ray, const vfloat3& pMin, const vfloat3& pMax, vfloat &hit0, vfloat &hit1) {
+        vfloat t0 = -1e30f, t1 = 1e30f;
 
-        float3 tNear = (pMin - ray.origin) / ray.dir;
-        float3 tFar  = (pMax - ray.origin) / ray.dir;
-        if (tNear.x > tFar.x) {
-            float tmp = tNear.x;
-            tNear.x = tFar.x;
-            tFar.x = tmp;
-        }
-        t0 = max(tNear.x, t0);
-        t1 = min(tFar.x, t1);
+        vfloat3 tNear = (pMin - ray.origin) / ray.dir;
+        vfloat3 tFar  = (pMax - ray.origin) / ray.dir;
+        spmd_if(tNear.x > tFar.x, [&] {
+            vfloat tmp = tNear.x;
+            store(tNear.x, tFar.x);
+            store(tFar.x, tmp);
+        });
+        store(t0, max(tNear.x, t0));
+        store(t1, min(tFar.x, t1));
 
-        if (tNear.y > tFar.y) {
-            float tmp = tNear.y;
-            tNear.y = tFar.y;
-            tFar.y = tmp;
-        }
-        t0 = max(tNear.y, t0);
-        t1 = min(tFar.y, t1);
+        spmd_if(tNear.y > tFar.y, [&] {
+            vfloat tmp = tNear.y;
+            store(tNear.y, tFar.y);
+            store(tFar.y, tmp);
+        });
 
-        if (tNear.z > tFar.z) {
-            float tmp = tNear.z;
-            tNear.z = tFar.z;
-            tFar.z = tmp;
-        }
-        t0 = max(tNear.z, t0);
-        t1 = min(tFar.z, t1);
+        store(t0, max(tNear.y, t0));
+        store(t1, min(tFar.y, t1));
+
+        spmd_if (tNear.z > tFar.z, [&] {
+            vfloat tmp = tNear.z;
+            store(tNear.z, tFar.z);
+            store(tFar.z, tmp);
+        });
+        store(t0, max(tNear.z, t0));
+        store(t1, min(tFar.z, t1));
     
-        if (t0 <= t1) {
-            hit0 = t0;
-            hit1 = t1;
-            return true;
-        }
-        else
-            return false;
+        vbool result = t0 <= t1;
+        spmd_if(result, [&] {
+            store(hit0, t0);
+            store(hit1, t1);
+        });
+        
+        return result;
     }
 };
 
 struct Lerp : spmd_kernel
 {
-    float _call(float t, float a, float b) {
+    vfloat _call(const vfloat& t, const vfloat& a, const vfloat& b) {
         return (1.f - t) * a + t * b;
     }
 };
 
 struct D : spmd_kernel
 {
-    float _call(int x, int y, int z, uniform int nVoxels[3], 
-                uniform float density[]) {
-        x = clamp(x, 0, nVoxels[0]-1);
-        y = clamp(y, 0, nVoxels[1]-1);
-        z = clamp(z, 0, nVoxels[2]-1);
+    vfloat _call(const vint& x, const vint& y, const vint& z, int nVoxels[3], 
+                 float density[]) {
+        vint xx = clamp(x, 0, nVoxels[0]-1);
+        vint yy = clamp(y, 0, nVoxels[1]-1);
+        vint zz = clamp(z, 0, nVoxels[2]-1);
 
-        return density[z*nVoxels[0]*nVoxels[1] + y*nVoxels[0] + x];
+        return load((zz*nVoxels[0]*nVoxels[1] + yy*nVoxels[0] + xx)[density]);
     }
 };
 
 struct Offset : spmd_kernel
 {
-    float3 _call(float3 p, float3 pMin, float3 pMax) {
+    vfloat3 _call(const vfloat3& p, const vfloat3& pMin, const vfloat3& pMax) {
         return (p - pMin) / (pMax - pMin);
     }
 };
 
 struct Density : spmd_kernel
 {
-    float _call(float3 Pobj, float3 pMin, float3 pMax, 
-                uniform float density[], uniform int nVoxels[3]) {
-        if (!Inside(Pobj, pMin, pMax)) 
-            return 0;
+    vfloat _call(const vfloat3& Pobj, const vfloat3& pMin, const vfloat3& pMax, 
+                 float density[], int nVoxels[3]) {
+        
+        vfloat result;
+        spmd_if(!spmd_call<Inside>(Pobj, pMin, pMax), [&] {
+            store(result, 0);
+        });
+
+        if (!any(exec))
+            return result;
+
         // Compute voxel coordinates and offsets for _Pobj_
-        float3 vox = Offset(Pobj, pMin, pMax);
-        vox.x = vox.x * nVoxels[0] - .5f;
-        vox.y = vox.y * nVoxels[1] - .5f;
-        vox.z = vox.z * nVoxels[2] - .5f;
-        int vx = (int)(vox.x), vy = (int)(vox.y), vz = (int)(vox.z);
-        float dx = vox.x - vx, dy = vox.y - vy, dz = vox.z - vz;
+        vfloat3 vox = spmd_call<Offset>(Pobj, pMin, pMax);
+        store(vox.x, vox.x * nVoxels[0] - .5f);
+        store(vox.y, vox.y * nVoxels[1] - .5f);
+        store(vox.z, vox.z * nVoxels[2] - .5f);
+        vint vx = (vint)(vox.x), vy = (vint)(vox.y), vz = (vint)(vox.z);
+        vfloat dx = vox.x - vx, dy = vox.y - vy, dz = vox.z - vz;
 
         // Trilinearly interpolate density values to compute local density
-        float d00 = Lerp(dx, D(vx, vy, vz, nVoxels, density),     
-                         D(vx+1, vy, vz, nVoxels, density));
-        float d10 = Lerp(dx, D(vx, vy+1, vz, nVoxels, density),   
-                         D(vx+1, vy+1, vz, nVoxels, density));
-        float d01 = Lerp(dx, D(vx, vy, vz+1, nVoxels, density),   
-                         D(vx+1, vy, vz+1, nVoxels, density));
-        float d11 = Lerp(dx, D(vx, vy+1, vz+1, nVoxels, density), 
-                         D(vx+1, vy+1, vz+1, nVoxels, density));
-        float d0 = Lerp(dy, d00, d10);
-        float d1 = Lerp(dy, d01, d11);
-        return Lerp(dz, d0, d1);
+        vfloat d00 = spmd_call<Lerp>(dx, spmd_call<D>(vx, vy, vz, nVoxels, density),
+                                         spmd_call<D>(vx+1, vy, vz, nVoxels, density));
+        vfloat d10 = spmd_call<Lerp>(dx, spmd_call<D>(vx, vy+1, vz, nVoxels, density),
+                                         spmd_call<D>(vx+1, vy+1, vz, nVoxels, density));
+        vfloat d01 = spmd_call<Lerp>(dx, spmd_call<D>(vx, vy, vz+1, nVoxels, density),
+                                         spmd_call<D>(vx+1, vy, vz+1, nVoxels, density));
+        vfloat d11 = spmd_call<Lerp>(dx, spmd_call<D>(vx, vy+1, vz+1, nVoxels, density),
+                                         spmd_call<D>(vx+1, vy+1, vz+1, nVoxels, density));
+        vfloat d0 = spmd_call<Lerp>(dy, d00, d10);
+        vfloat d1 = spmd_call<Lerp>(dy, d01, d11);
+
+        store(result, spmd_call<Lerp>(dz, d0, d1));
+        return result;
     }
 };
 
-struct transmittance : spmd_kernel
+struct transmittance : vfloat3_mixin<spmd_kernel>
 {
-    float _call(uniform float3 p0, float3 p1, uniform float3 pMin,
-                uniform float3 pMax, uniform float sigma_t, 
-                uniform float density[], uniform int nVoxels[3]) {
-        float rayT0, rayT1;
-        Ray ray;
-        ray.origin = p1;
-        ray.dir = p0 - p1;
+    vfloat _call(const float3& p0, const vfloat3& p1, const float3& pMin,
+                 const float3& pMax, float sigma_t, 
+                 float density[], int nVoxels[3]) {
+        vfloat rayT0, rayT1;
+        vRay ray{ p1, vfloat3(p0) - p1 };
+
+        vfloat result;
 
         // Find the parametric t range along the ray that is inside the volume.
-        if (!IntersectP(ray, pMin, pMax, rayT0, rayT1))
-            return 1.;
+        spmd_if(!spmd_call<IntersectP>(ray, pMin, pMax, rayT0, rayT1), [&] {
+            store(result, 1.0f);
+        });
 
-        rayT0 = max(rayT0, 0.f);
+        if (!any(exec))
+            return result;
+
+        store(rayT0, max(rayT0, 0.f));
 
         // Accumulate beam transmittance in tau
-        float tau = 0;
-        float rayLength = sqrt(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
-                               ray.dir.z * ray.dir.z);
-        uniform float stepDist = 0.2;
-        float stepT = stepDist / rayLength;
+        vfloat tau = 0.0f;
+        vfloat rayLength = sqrt(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
+                                ray.dir.z * ray.dir.z);
+        float stepDist = 0.2f;
+        vfloat stepT = stepDist / rayLength;
 
-        float t = rayT0;
-        float3 pos = ray.origin + ray.dir * rayT0;
-        float3 dirStep = ray.dir * stepT;
-        while (t < rayT1) {
-            tau += stepDist * sigma_t * Density(pos, pMin, pMax, density, nVoxels);
-            pos = pos + dirStep;
-            t += stepT;
-        }
+        vfloat t = rayT0;
+        vfloat3 pos = ray.origin + ray.dir * rayT0;
+        vfloat3 dirStep = ray.dir * stepT;
+        spmd_while([&] { return t < rayT1; }, [&] {
+            store(tau, tau + stepDist * sigma_t * spmd_call<Density>(pos, pMin, pMax, density, nVoxels));
+            store(pos, pos + dirStep);
+            store(t, t + stepT);
+        });
 
-        return exp(-tau);
+        store(result, exp(-tau));
+        return result;
     }
 };
 
 struct distanceSquared : spmd_kernel
 {
-    float _call(float3 a, float3 b) {
-        float3 d = a - b;
+    vfloat _call(const vfloat3& a, const vfloat3& b) {
+        vfloat3 d = a - b;
         return d.x*d.x + d.y*d.y + d.z*d.z;
     }
 };
 
-
-struct raymarch : spmd_kernel
+struct raymarch : vfloat3_mixin<spmd_kernel>
 {
-    float _call(uniform float density[], uniform int nVoxels[3], Ray ray) {
-        float rayT0, rayT1;
-        uniform float3 pMin = {.3, -.2, .3}, pMax = {1.8, 2.3, 1.8};
-        uniform float3 lightPos = { -1, 4, 1.5 };
+    vfloat _call(float density[], int nVoxels[3], const vRay& ray) {
+        vfloat rayT0, rayT1;
+        float3 pMin = {.3, -.2, .3}, pMax = {1.8, 2.3, 1.8};
+        float3 lightPos = { -1, 4, 1.5 };
 
-        cif (!IntersectP(ray, pMin, pMax, rayT0, rayT1))
-            return 0.;
+        vfloat result;
 
-        rayT0 = max(rayT0, 0.f);
+        spmd_if(!spmd_call<IntersectP>(ray, pMin, pMax, rayT0, rayT1), [&] {
+            store(result, 0.0f);
+        });
+        
+        if (!any(exec))
+            return result;
+
+        store(rayT0, max(rayT0, 0.f));
 
         // Parameters that define the volume scattering characteristics and
         // sampling rate for raymarching
-        uniform float Le = .25;            // Emission coefficient
-        uniform float sigma_a = 10;        // Absorption coefficient
-        uniform float sigma_s = 10;        // Scattering coefficient
-        uniform float stepDist = 0.025;    // Ray step amount
-        uniform float lightIntensity = 40; // Light source intensity
+        float Le = 0.25f;             // Emission coefficient
+        float sigma_a = 10.0f;        // Absorption coefficient
+        float sigma_s = 10.0f;        // Scattering coefficient
+        float stepDist = 0.025f;      // Ray step amount
+        float lightIntensity = 40.0f; // Light source intensity
 
-        float tau = 0.f;  // accumulated beam transmittance
-        float L = 0;      // radiance along the ray
-        float rayLength = sqrt(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
-                               ray.dir.z * ray.dir.z);
-        float stepT = stepDist / rayLength;
+        vfloat tau = 0.f;  // accumulated beam transmittance
+        vfloat L = 0.0f;   // radiance along the ray
+        vfloat rayLength = sqrt(ray.dir.x * ray.dir.x + ray.dir.y * ray.dir.y +
+                                ray.dir.z * ray.dir.z);
+        vfloat stepT = stepDist / rayLength;
 
-        float t = rayT0;
-        float3 pos = ray.origin + ray.dir * rayT0;
-        float3 dirStep = ray.dir * stepT;
-        cwhile (t < rayT1) {
-            float d = Density(pos, pMin, pMax, density, nVoxels);
+        vfloat t = rayT0;
+        vfloat3 pos = ray.origin + ray.dir * rayT0;
+        vfloat3 dirStep = ray.dir * stepT;
+        spmd_while([&] { return t < rayT1; }, [&] {
+            vfloat d = spmd_call<Density>(pos, pMin, pMax, density, nVoxels);
 
             // terminate once attenuation is high
-            float atten = exp(-tau);
-            if (atten < .005)
-                cbreak;
+            vfloat atten = exp(-tau);
+            spmd_if(atten < 0.005f, [&] {
+                spmd_break();
+            });
+
+            if (!any(exec))
+                return;
 
             // direct lighting
-            float Li = lightIntensity / distanceSquared(lightPos, pos) * 
-                transmittance(lightPos, pos, pMin, pMax, sigma_a + sigma_s,
-                              density, nVoxels);
-            L += stepDist * atten * d * sigma_s * (Li + Le);
+            vfloat Li = lightIntensity / spmd_call<distanceSquared>(lightPos, pos) * 
+                spmd_call<transmittance>(lightPos, pos, pMin, pMax, sigma_a + sigma_s,
+                                         density, nVoxels);
+            store(L, L + stepDist * atten * d * sigma_s * (Li + Le));
 
             // update beam transmittance
-            tau += stepDist * (sigma_a + sigma_s) * d;
+            store(tau, tau + stepDist * (sigma_a + sigma_s) * d);
 
-            pos = pos + dirStep;
-            t += stepT;
-        }
+            store(pos, pos + dirStep);
+            store(t, t + stepT);
+        });
 
         // Gamma correction
-        return pow(L, 1.f / 2.2f);
+        store(result, pow(L, 1.f / 2.2f));
+        return result;
     }
 };
 
