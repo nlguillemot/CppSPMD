@@ -5,12 +5,10 @@
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="noise.ispc" />
+    <CustomBuild Include="simple.ispc" />
+    <CustomBuild Include="mandelbrot.ispc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="spmd_avx2-i32x8.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="simple.ispc" />
-    <None Include="mandelbrot.ispc" />
   </ItemGroup>
 </Project>

@@ -505,10 +505,7 @@ struct spmd_kernel
     template<class UnmaskedBody>
     void spmd_unmasked(const UnmaskedBody& unmaskedBody)
     {
-        // if all lanes are off, that means the control flow shouldn't even get here
-        // since we don't immediately return when all lanes turn off, zombie execution is possible.
-        if (!any(exec))
-            return;
+        // beware: since we don't immediately return when all lanes turn off, zombie execution is possible.
 
         // save old exec mask
         exec_t old_exec = exec;

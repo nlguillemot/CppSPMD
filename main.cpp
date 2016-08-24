@@ -10,7 +10,9 @@
 //#define NOISE
 #define MANDELBROT
 
+// Enable hand-written optimizations
 #define SPMD_NOISE_OPTIMIZATION
+#define SPMD_MANDELBROT_OPTIMIZATION
 
 #ifdef SCALAR
 #include <cmath>
@@ -512,17 +514,36 @@ struct mandel : spmd_kernel
     {
         vfloat z_re = c_re, z_im = c_im;
         vint i;
+#ifdef SPMD_MANDELBROT_OPTIMIZATION
+        spmd_for([&] { i._value = _mm256_setzero_si256();  }, [&] { return i < count; }, [&] { i._value = (i + 1)._value; }, [&] {
+#else
         spmd_for([&] { store(i, 0);  }, [&] { return i < count; }, [&] { store(i, i + 1); }, [&] {
+#endif
+
+#ifdef SPMD_MANDELBROT_OPTIMIZATION
+            spmd_if(fma(z_re, z_re, z_im * z_im) > 4.0f, [&] {
+#else
             spmd_if(z_re * z_re + z_im * z_im > 4.0f, [&] {
+#endif
                 spmd_break();
             });
 
+#ifdef SPMD_MANDELBROT_OPTIMIZATION
+            vfloat new_re = fma(z_re, z_re, - z_im * z_im);
+#else
             vfloat new_re = z_re * z_re - z_im * z_im;
+#endif
             vfloat new_im = 2.f * z_re * z_im;
+
+#ifdef SPMD_MANDELBROT_OPTIMIZATION
+            z_re._value = (c_re + new_re)._value;
+            z_im._value = (c_im + new_im)._value;
+#else
             spmd_unmasked([&] {
                 store(z_re, c_re + new_re);
                 store(z_im, c_im + new_im);
             });
+#endif
         });
 
         return i;
@@ -555,7 +576,11 @@ struct mandelbrot : spmd_kernel
                 vfloat y = y0 + j * dy;
 
                 lint index = j * width + i;
+#ifdef SPMD_MANDELBROT_OPTIMIZATION
+                *(__m256i*)index[output]._value = spmd_call<mandel>(x, y, maxIterations)._value;
+#else
                 store(index[output], spmd_call<mandel>(x, y, maxIterations));
+#endif
             });
         }
     }
