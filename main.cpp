@@ -513,8 +513,9 @@ struct mandel : spmd_kernel
         vfloat z_re = c_re, z_im = c_im;
         vint i;
         spmd_for([&] { store(i, 0);  }, [&] { return i < count; }, [&] { store(i, i + 1); }, [&] {
-            if (z_re * z_re + z_im * z_im > 4.0f)
+            spmd_if(z_re * z_re + z_im * z_im > 4.0f, [&] {
                 spmd_break();
+            });
 
             vfloat new_re = z_re*z_re - z_im*z_im;
             vfloat new_im = 2.f * z_re * z_im;

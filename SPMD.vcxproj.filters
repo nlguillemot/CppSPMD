@@ -11,5 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="simple.ispc" />
+    <None Include="mandelbrot.ispc" />
   </ItemGroup>
 </Project>

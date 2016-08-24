@@ -1,34 +1,84 @@
 #pragma once
 
 #include <immintrin.h>
-
 #include <cstdint>
 #include <cassert>
 #include <utility>
 
 struct spmd_kernel
 {
+    struct vbool;
     struct vint;
 
     struct exec_t
     {
-        __m256 _mask;
+        __m256i _mask;
+
+        explicit exec_t(const __m256i& mask)
+            : _mask(mask)
+        { }
+
+        explicit exec_t(const vbool& b);
+
+        static exec_t all_on()
+        {
+            return exec_t{ _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()) };
+        }
+
+        static exec_t all_off()
+        {
+            return exec_t{ _mm256_setzero_si256() };
+        }
     };
 
-    exec_t exec = exec_t{ _mm256_cmp_ps(_mm256_setzero_ps(), _mm256_setzero_ps(), _CMP_EQ_OQ) };
+    // forward declarations of non-member functions
+    friend exec_t operator&(const exec_t& a, const exec_t& b);
+    friend exec_t operator|(const exec_t& a, const exec_t& b);
+    friend bool any(const exec_t& e);
+
+    // the execution mask at entry of the kernel
+    exec_t _kernel_exec;
+
+    // the execution mask at the current point of varying control flow
+    exec_t _internal_exec;
+
+    // the OR of all lanes which hit a "spmd_break" in the current loop
+    exec_t _break_mask;
+
+    // the OR of all lanes which hit a "spmd_continue" in the current loop
+    exec_t _continue_mask;
+
+    // current control flow's execution mask (= _kernel_exec & _internal_exec)
+    exec_t exec;
+
+    // this is basically the constructor
+    // can't use a real constructor without requiring users
+    // to eg. say "using spmd_kernel::spmd_kernel;", which is blah.
+    void _init(const exec_t& kernel_exec)
+    {
+        _kernel_exec = kernel_exec;
+        _internal_exec = exec_t::all_on();
+        exec = kernel_exec;
+    }
 
     struct vbool
     {
-        __m256 _value;
+        __m256i _value;
+
+        explicit vbool(const __m256i& value)
+            : _value(value)
+        { }
 
     private:
         // assignment must be masked
         vbool& operator=(const vbool&);
     };
 
+    friend vbool operator!(const vbool& v);
+
     vbool& store(vbool& dst, const vbool& src)
     {
-        dst._value = _mm256_blendv_ps(dst._value, src._value, exec._mask);
+        dst._value = _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(dst._value), _mm256_castsi256_ps(src._value), _mm256_castsi256_ps(exec._mask)));
         return dst;
     }
 
@@ -59,7 +109,7 @@ struct spmd_kernel
 
     vfloat& store(vfloat& dst, const vfloat& src)
     {
-        dst._value = _mm256_blendv_ps(dst._value, src._value, exec._mask);
+        dst._value = _mm256_blendv_ps(dst._value, src._value, _mm256_castsi256_ps(exec._mask));
         return dst;
     }
 
@@ -76,7 +126,7 @@ struct spmd_kernel
     // scatter
     vfloat_lref& store(vfloat_lref& dst, const vfloat& src)
     {
-        int mask = _mm256_movemask_ps(exec._mask);
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
         if (mask == 0b11111111)
         {
             // "all on" optimization: vector store
@@ -85,7 +135,7 @@ struct spmd_kernel
         else
         {
             // masked store
-            _mm256_maskstore_ps(dst._value, _mm256_castps_si256(exec._mask), src._value);
+            _mm256_maskstore_ps(dst._value, exec._mask, src._value);
         }
         return dst;
     }
@@ -93,7 +143,7 @@ struct spmd_kernel
     // gather
     vfloat load(const vfloat_lref& src)
     {
-        int mask = _mm256_movemask_ps(exec._mask);
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
         if (mask == 0b11111111)
         {
             // "all on" optimization: vector load
@@ -102,7 +152,50 @@ struct spmd_kernel
         else
         {
             // masked load
-            return vfloat{ _mm256_maskload_ps(src._value, _mm256_castps_si256(exec._mask)) };
+            return vfloat{ _mm256_maskload_ps(src._value, exec._mask) };
+        }
+    }
+
+    // reference to a vint stored linearly in memory
+    struct vint_lref
+    {
+        int* _value;
+
+    private:
+        // ref-ref assignment must be masked both ways
+        vint_lref& operator=(const vint_lref&);
+    };
+
+    // scatter
+    vint_lref& store(vint_lref& dst, const vint& src)
+    {
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
+        if (mask == 0b11111111)
+        {
+            // "all on" optimization: vector store
+            _mm256_storeu_si256((__m256i*)dst._value, src._value);
+        }
+        else
+        {
+            // masked store
+            _mm256_maskstore_epi32(dst._value, exec._mask, src._value);
+        }
+        return dst;
+    }
+
+    // gather
+    vint load(const vint_lref& src)
+    {
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
+        if (mask == 0b11111111)
+        {
+            // "all on" optimization: vector load
+            return vint{ _mm256_loadu_si256((__m256i*)src._value) };
+        }
+        else
+        {
+            // masked load
+            return vint{ _mm256_maskload_epi32(src._value, exec._mask) };
         }
     }
 
@@ -139,10 +232,10 @@ struct spmd_kernel
 
         operator vbool() const
         {
-            return vbool{ _mm256_castsi256_ps(
+            return vbool{
                 _mm256_xor_si256(
                     _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()),
-                    _mm256_cmpeq_epi32(_value, _mm256_setzero_si256()))) };
+                    _mm256_cmpeq_epi32(_value, _mm256_setzero_si256())) };
         }
 
         operator vfloat() const
@@ -162,7 +255,7 @@ struct spmd_kernel
 
     vint& store(vint& dst, const vint& src)
     {
-        dst._value = _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(dst._value), _mm256_castsi256_ps(src._value), exec._mask));
+        dst._value = _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(dst._value), _mm256_castsi256_ps(src._value), _mm256_castsi256_ps(exec._mask)));
         return dst;
     }
 
@@ -175,7 +268,7 @@ struct spmd_kernel
         __declspec(align(32)) int stored[8];
         _mm256_store_si256((__m256i*)stored, src._value);
 
-        int mask = _mm256_movemask_ps(exec._mask);
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
         for (int i = 0; i < 8; i++)
         {
             if (mask & (1 << i))
@@ -187,7 +280,7 @@ struct spmd_kernel
     // gather
     vint load(const vint_vref& src)
     {
-        return vint{ _mm256_mask_i32gather_epi32(_mm256_setzero_si256(), src._value, src._vindex, _mm256_castps_si256(exec._mask), 4) };
+        return vint{ _mm256_mask_i32gather_epi32(_mm256_setzero_si256(), src._value, src._vindex, exec._mask, 4) };
     }
 
     struct lint
@@ -208,6 +301,11 @@ struct spmd_kernel
             return vfloat_lref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
         }
 
+        vint_lref operator[](int* ptr) const
+        {
+            return vint_lref{ ptr + _mm_cvtsi128_si32(_mm256_extracti128_si256(_value, 0)) };
+        }
+
     private:
         // masked assignment can produce a non-linear value
         lint& operator=(const lint&);
@@ -219,51 +317,87 @@ struct spmd_kernel
     template<class IfBody>
     void spmd_if(const vbool& cond, const IfBody& ifBody)
     {
-        // save old execution mask
-        exec_t old_exec = exec;
-
         // apply "if" mask
-        exec = exec & exec_t{ cond._value };
+        exec_t cond_exec(cond);
+        exec_t pre_if_internal_exec = _internal_exec & cond_exec;
+        exec_t pre_if_exec = exec & cond_exec;
+        
+        _internal_exec = pre_if_internal_exec;
+        exec = pre_if_exec;
 
-        // "all off" optimization
-        int mask = _mm256_movemask_ps(exec._mask);
-        if (mask != 0)
+        if (any(exec)) // "all off" optimization
         {
             ifBody();
         }
 
-        // restore execution mask
-        exec = old_exec;
+        // propagate any lanes that were shut down inside the if
+        // (assuming lanes haven't "come back to life" at the end of an "if")
+        // eg: spmd_if(x, [&]{ spmd_break(); });
+        _internal_exec = andnot(pre_if_internal_exec ^ _internal_exec, _internal_exec);
+        exec = _kernel_exec & _internal_exec;
     }
 
     template<class IfBody, class ElseBody>
     void spmd_ifelse(const vbool& cond, const IfBody& ifBody, const ElseBody& elseBody)
     {
+        // Simple implementation, going for correctness first.
+        // Maybe could be "optimized" by using andnot in between.
+        // Also would be interesting to make it easier to chain if/elses,
+        // though have to be careful to lazily evaluate the "cond" in "else if(cond)".
+        spmd_if(cond, ifBody);
+        spmd_if(!cond, elseBody);
+    }
+
+    template<class ForInitBody, class ForCondBody, class ForIncrBody, class ForBody>
+    void spmd_for(const ForInitBody& forInitBody, const ForCondBody& forCondBody, const ForIncrBody& forIncrBody, const ForBody& forBody)
+    {
         // save old execution mask
         exec_t old_exec = exec;
+        exec_t old_internal_exec = _internal_exec;
 
-        // apply "if" mask
-        exec = exec & exec_t{ cond._value };
+        // execute the initialization clause of the loop
+        forInitBody();
 
-        // "all off" optimization
-        int mask = _mm256_movemask_ps(exec._mask);
-        if (mask != 0)
+        // save the state of the previous loop (assuming there was one)
+        // then start fresh for this loop
+        exec_t old_continue_mask = _continue_mask;
+        exec_t old_break_mask = _break_mask;
+        
+        _continue_mask = exec_t::all_off();
+        _break_mask = exec_t::all_off();
+
+        // start looping
+        for (;;)
         {
-            ifBody();
+            // compound the result of the loop condition into the execution mask
+            exec_t cond_exec = exec_t(forCondBody());
+            _internal_exec = _internal_exec & cond_exec;
+            exec = exec & cond_exec;
+
+            // if no lanes are active anymore, stop looping
+            if (!any(exec))
+                break;
+
+            // evaluate the loop body
+            forBody();
+
+            // reactivate all lanes that hit a "continue"
+            _internal_exec = _internal_exec | _continue_mask;
+            exec = _internal_exec & _kernel_exec;
+            _continue_mask = exec_t::all_off();
+
+            // evaluate the loop increment
+            forIncrBody();
         }
 
-        // invert mask for "else"
-        exec = andnot(exec, old_exec);
+        // if any lanes hit a break statement, they were shut off in the loop.
+        // now that the loop is done, their execution can be restored.
+        _internal_exec = _internal_exec | _break_mask;
+        exec = _internal_exec & _kernel_exec;
 
-        // "all off" optimization
-        mask = _mm256_movemask_ps(exec._mask);
-        if (mask != 0)
-        {
-            elseBody();
-        }
-
-        // restore execution mask
-        exec = old_exec;
+        // restore the continue/break of the previous loop in the stack
+        _continue_mask = old_continue_mask;
+        _break_mask = old_break_mask;
     }
 
     template<class ForeachBody>
@@ -272,12 +406,14 @@ struct spmd_kernel
         // could allow this, just too lazy right now.
         assert(first <= last);
 
-        // number of loops that don't require extra masking
+        // number of loops that don't require loop tail masking
         int numFullLoops = ((last - first) / programCount) * programCount;
-        // number of loops that require extra masking (if loop count is not a multiple of programCount)
+
+        // number of loops that require loop tail masking
+        // happens when the loop count is not a multiple of programCount)
         int numPartialLoops = (last - first) % programCount;
 
-        // do every loop that doesn't need to be masked
+        // do every loop that doesn't need to be tail masked
         __m256i loopIndex = _mm256_add_epi32(programIndex._value, _mm256_set1_epi32(first));
         for (int i = 0; i < numFullLoops; i += programCount)
         {
@@ -302,28 +438,124 @@ struct spmd_kernel
         }
     }
 
-    template<class SPMDKernel, class... Args>
-    auto spmd_call(Args&&... args)
+    void spmd_break()
     {
+        // this should only be called inside loops. A check for this would be good.
+
+        // set currently active lanes as "break"'d
+        _break_mask = _break_mask | _internal_exec;
+
+        // turn off all active lanes so nothing happens after the break.
+        _internal_exec = exec_t::all_off();
+        exec = exec_t::all_off();
+    }
+
+    void spmd_continue()
+    {
+        // this should only be called inside loops. A check for this would be good.
+
+        // set currently active lanes as "continue"'d
+        _continue_mask = _continue_mask | _internal_exec;
+
+        // turn off all active lanes so nothing happens after the continue
+        _internal_exec = exec_t::all_off();
+        exec = exec_t::all_off();
+    }
+
+    void spmd_return()
+    {
+        // currently don't support returning *values* non-uniformly.
+        // You have to manually accumulate your results before returning,
+        // similarly to using an "out" variable,
+        // then do a uniform return later.
+
+        // Also, no effort is made to detect that everything is off and do a uniform return.
+        // It's not possible to implement other than maybe macro magic, or longjmp/exceptions.
+        // Currently depend on the user to implement that optimization where suitable.
+
+        // turn off all active lanes so nothing happens after the return
+        _kernel_exec = exec_t::all_off();
+        exec = exec_t::all_off();
+    }
+
+    template<class UnmaskedBody>
+    void spmd_unmasked(const UnmaskedBody& unmaskedBody)
+    {
+        // if all lanes are off, that means the control flow shouldn't even get here
+        // since we don't immediately return when all lanes turn off, zombie execution is possible.
+        if (!any(exec))
+            return;
+
+        // save old exec mask
+        exec_t old_exec = exec;
+        exec_t old_kernel_exec = _kernel_exec;
+        exec_t old_internal_exec = _internal_exec;
+        
+        // totally unmask the execution
+        _kernel_exec = exec_t::all_on();
+        _internal_exec = exec_t::all_on();
+        exec = exec_t::all_on();
+
+        // run the unmasked body
+        unmaskedBody();
+
+        // restore execution mask with any new masks applied
+        // eg: spmd_unmasked([&] {
+        //         spmd_if(x, [&] {
+        //             spmd_return();
+        //         });
+        //     });
+        _kernel_exec = _kernel_exec & old_kernel_exec;
+        _internal_exec = _internal_exec & old_internal_exec;
+        exec = exec & old_exec;
+    }
+
+    template<class SPMDKernel, class... Args>
+    decltype(auto) spmd_call(Args&&... args)
+    {
+        // pass on the execution mask, so masking works recursively
         SPMDKernel kernel;
-        kernel.exec = exec;
+        kernel._init(exec);
         return kernel._call(std::forward<Args>(args)...);
     }
 };
 
+spmd_kernel::vbool operator!(const spmd_kernel::vbool& v)
+{
+    return spmd_kernel::vbool{
+        _mm256_xor_si256(
+            _mm256_cmpeq_epi32(_mm256_setzero_si256(), _mm256_setzero_si256()),
+            v._value) };
+}
+
+spmd_kernel::exec_t::exec_t(const spmd_kernel::vbool& b)
+{
+    _mask = _mm256_cmpeq_epi32(b._value, _mm256_setzero_si256());
+}
+
 spmd_kernel::exec_t operator&(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
 {
-    return spmd_kernel::exec_t{ _mm256_and_ps(a._mask, b._mask) };
+    return spmd_kernel::exec_t{ _mm256_and_si256(a._mask, b._mask) };
+}
+
+spmd_kernel::exec_t operator|(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
+{
+    return spmd_kernel::exec_t{ _mm256_or_si256(a._mask, b._mask) };
+}
+
+bool any(const spmd_kernel::exec_t& e)
+{
+    return _mm256_movemask_ps(_mm256_castsi256_ps(e._mask)) != 0;
 }
 
 spmd_kernel::exec_t andnot(const spmd_kernel::exec_t& a, const spmd_kernel::exec_t& b)
 {
-    return spmd_kernel::exec_t{ _mm256_andnot_ps(a._mask, b._mask) };
+    return spmd_kernel::exec_t{ _mm256_andnot_si256(a._mask, b._mask) };
 }
 
 spmd_kernel::vbool operator||(const spmd_kernel::vbool& a, const spmd_kernel::vbool& b)
 {
-    return spmd_kernel::vbool{ _mm256_or_ps(a._value, b._value) };
+    return spmd_kernel::vbool{ _mm256_or_si256(a._value, b._value) };
 }
 
 spmd_kernel::vfloat operator*(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
@@ -343,17 +575,22 @@ spmd_kernel::vfloat operator-(const spmd_kernel::vfloat& v)
 
 spmd_kernel::vbool operator==(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
 {
-    return spmd_kernel::vbool{ _mm256_cmp_ps(a._value, b._value, _CMP_EQ_OQ) };
+    return spmd_kernel::vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_EQ_OQ)) };
 }
 
 spmd_kernel::vbool operator<(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
 {
-    return spmd_kernel::vbool{ _mm256_cmp_ps(a._value, b._value, _CMP_LT_OQ) };
+    return spmd_kernel::vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_LT_OQ)) };
+}
+
+spmd_kernel::vbool operator>(const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
+{
+    return spmd_kernel::vbool{ _mm256_castps_si256(_mm256_cmp_ps(a._value, b._value, _CMP_GT_OQ)) };
 }
 
 spmd_kernel::vfloat spmd_ternary(const spmd_kernel::vbool& cond, const spmd_kernel::vfloat& a, const spmd_kernel::vfloat& b)
 {
-    return spmd_kernel::vfloat{ _mm256_blendv_ps(b._value, a._value, cond._value) };
+    return spmd_kernel::vfloat{ _mm256_blendv_ps(b._value, a._value, _mm256_castsi256_ps(cond._value)) };
 }
 
 spmd_kernel::vfloat sqrt(const spmd_kernel::vfloat& v)
@@ -421,12 +658,12 @@ spmd_kernel::vint operator&(const spmd_kernel::vint& a, const spmd_kernel::vint&
 
 spmd_kernel::vbool operator==(const spmd_kernel::vint& a, const spmd_kernel::vint& b)
 {
-    return spmd_kernel::vbool{ _mm256_castsi256_ps(_mm256_cmpeq_epi32(a._value, b._value)) };
+    return spmd_kernel::vbool{ _mm256_cmpeq_epi32(a._value, b._value) };
 }
 
 spmd_kernel::vbool operator<(const spmd_kernel::vint& a, const spmd_kernel::vint& b)
 {
-    return spmd_kernel::vbool{ _mm256_castsi256_ps(_mm256_cmpgt_epi32(b._value, a._value)) };
+    return spmd_kernel::vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
 }
 
 spmd_kernel::vint operator+(const spmd_kernel::vint& a, const spmd_kernel::vint& b)
@@ -436,17 +673,25 @@ spmd_kernel::vint operator+(const spmd_kernel::vint& a, const spmd_kernel::vint&
 
 spmd_kernel::vbool operator==(const spmd_kernel::lint& a, const spmd_kernel::lint& b)
 {
-    return spmd_kernel::vbool{ _mm256_castsi256_ps(_mm256_cmpeq_epi32(a._value, b._value)) };
+    return spmd_kernel::vbool{ _mm256_cmpeq_epi32(a._value, b._value) };
 }
 
 spmd_kernel::vbool operator<(const spmd_kernel::lint& a, const spmd_kernel::lint& b)
 {
-    return spmd_kernel::vbool{ _mm256_castsi256_ps(_mm256_cmpgt_epi32(b._value, a._value)) };
+    return spmd_kernel::vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
+}
+
+spmd_kernel::vbool operator>(const spmd_kernel::lint& a, const spmd_kernel::lint& b)
+{
+    return spmd_kernel::vbool{ _mm256_cmpgt_epi32(a._value, b._value) };
 }
 
 template<class SPMDKernel, class... Args>
 auto spmd_call(Args&&... args)
 {
+    // This is a spmd_call from outside a spmd_kernel.
+    // just call the kernel with an "all on" execution mask.
     SPMDKernel kernel;
+    kernel._init(spmd_kernel::exec_t::all_on());
     return kernel._call(std::forward<Args>(args)...);
 }

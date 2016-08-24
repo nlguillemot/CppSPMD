@@ -4,6 +4,7 @@
 *.vcxproj.user
 x64
 noise.ppm
+mandelbrot.ppm
 My Amplifier Results*
 *.s
 *.ispc.h
