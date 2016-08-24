@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 
 // which version to use
 //#define SCALAR
@@ -932,6 +933,9 @@ struct vfloat3
     vfloat operator[](int i) { return (&x)[i]; }
 };
 
+#ifdef _MSC_VER
+__declspec(align(16))
+#endif
 struct float3 {
     float3() = default;
     float3(float xx, float yy, float zz)
@@ -976,7 +980,10 @@ struct vfloat3_mixin : T
 
     vfloat3& store(vfloat3& dst, const vfloat3& src)
     {
-        // implement me!
+        store(dst.x, src.x);
+        store(dst.y, src.y);
+        store(dst.z, src.z);
+        return dst;
     }
 };
 

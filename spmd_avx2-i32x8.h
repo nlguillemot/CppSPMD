@@ -439,7 +439,41 @@ struct spmd_kernel
     template<class WhileCondBody, class WhileBody>
     void spmd_while(const WhileCondBody& whileCondBody, const WhileBody& whileBody)
     {
-        // implement me!
+        // save old execution mask
+        exec_t old_internal_exec = _internal_exec;
+
+        // save the state of the previous loop (assuming there was one)
+        // then start fresh for this loop
+        exec_t old_continue_mask = _continue_mask;
+        _continue_mask = exec_t::all_off();
+
+        // start looping
+        for (;;)
+        {
+            // compound the result of the loop condition into the execution mask
+            exec_t cond_exec = exec_t(whileCondBody());
+            _internal_exec = _internal_exec & cond_exec;
+            exec = exec & cond_exec;
+
+            // if no lanes are active anymore, stop looping
+            if (!any(exec))
+                break;
+
+            whileBody();
+
+            // reactivate all lanes that hit a "continue"
+            _internal_exec = _internal_exec | _continue_mask;
+            exec = _internal_exec & _kernel_exec;
+            _continue_mask = exec_t::all_off();
+        }
+
+        // now that the loop is done,
+        // can restore lanes that were "break"'d, or that failed the loop condition.
+        _internal_exec = old_internal_exec;
+        exec = _internal_exec & _kernel_exec;
+
+        // restore the continue mask of the previous loop in the stack
+        _continue_mask = old_continue_mask;
     }
 
     template<class ForInitBody, class ForCondBody, class ForIncrBody, class ForBody>

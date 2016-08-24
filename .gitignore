@@ -5,6 +5,7 @@
 x64
 noise.ppm
 mandelbrot.ppm
+volume.ppm
 My Amplifier Results*
 *.s
 *.ispc.h
