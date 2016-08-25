@@ -10,13 +10,14 @@
 
 // which test to run
 //#define SIMPLE
-#define NOISE
+//#define NOISE
 //#define MANDELBROT
-//#define VOLUME
+#define VOLUME
 
 // Enable hand-written optimizations
 #define SPMD_NOISE_OPTIMIZATION
 #define SPMD_MANDELBROT_OPTIMIZATION
+#define SPMD_VOLUME_OPTIMIZATION
 
 #ifdef SCALAR
 
@@ -1331,19 +1332,27 @@ extern "C" int __stdcall QueryPerformanceCounter(uint64_t* lpPerformanceCount);
 extern "C" int __stdcall QueryPerformanceFrequency(uint64_t* lpFrequency);
 
 uint64_t g_start_time;
+uint64_t g_total_time;
 
 void start_timer()
 {
+    QueryPerformanceCounter(&g_start_time);
+    g_total_time = 0;
+}
+
+void end_run()
+{
+    uint64_t end_time;
+    QueryPerformanceCounter(&end_time);
+    g_total_time += end_time - g_start_time;
     QueryPerformanceCounter(&g_start_time);
 }
 
 void stop_timer(int num_runs)
 {
-    uint64_t end_time;
     uint64_t freq;
-    QueryPerformanceCounter(&end_time);
     QueryPerformanceFrequency(&freq);
-    double sec = double(end_time - g_start_time) / freq;
+    double sec = double(g_total_time) / freq;
     printf("%d runs in %.3lf seconds, %.3lf seconds per run\n", num_runs, sec, sec / num_runs);
 }
 
@@ -1417,6 +1426,8 @@ int main()
 #ifdef ISPC
         ispc::noise(x0, y0, x1, y1, width, height, buf);
 #endif // ISPC
+
+        end_run();
     }
 
     stop_timer(num_runs);
@@ -1456,7 +1467,7 @@ int main()
     int maxIterations = 256;
     int *buf = new int[width*height];
 
-    int num_runs = 1;
+    int num_runs = 100;
 
     start_timer();
 
@@ -1473,6 +1484,8 @@ int main()
 #ifdef ISPC
         ispc::mandelbrot(x0, y0, x1, y1, width, height, maxIterations, buf);
 #endif // ISPC
+
+        end_run();
     }
 
     stop_timer(num_runs);
@@ -1576,7 +1589,7 @@ int main(int argc, char *argv[]) {
     int n[3];
     float *density = loadVolume("volume_assets/density_highres.vol", n);
 
-    int num_runs = 10;
+    int num_runs = 1;
 
     start_timer();
 
@@ -1596,6 +1609,8 @@ int main(int argc, char *argv[]) {
         ispc::volume(density, n, raster2camera, camera2world,
                      width, height, image);
 #endif // ISPC
+
+        end_run();
     }
 
     stop_timer(num_runs);
