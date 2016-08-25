@@ -8,6 +8,7 @@
     <CustomBuild Include="simple.ispc" />
     <CustomBuild Include="mandelbrot.ispc" />
     <CustomBuild Include="volume.ispc" />
+    <CustomBuild Include="options.ispc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="spmd_avx2-i32x8.h" />
