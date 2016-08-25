@@ -10,10 +10,10 @@
 //#define ISPC
 
 // which test to run
-#define SIMPLE
+//#define SIMPLE
 //#define NOISE
 //#define MANDELBROT
-//#define VOLUME
+#define VOLUME
 //#define OPTIONS
 
 // Enable hand-written optimizations
