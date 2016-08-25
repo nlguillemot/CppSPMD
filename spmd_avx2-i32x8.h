@@ -3,6 +3,7 @@
 #include <immintrin.h>
 #include <cstdint>
 #include <cassert>
+#include <cmath>
 #include <utility>
 
 #include "avx_mathfun_tweaked.h"
@@ -407,7 +408,7 @@ struct spmd_kernel
     };
 
     const lint programIndex = lint{ _mm256_set_epi32(7,6,5,4,3,2,1,0) };
-    const int programCount = 8;
+    static const int programCount = 8;
 
     template<class IfBody>
     void spmd_if(const vbool& cond, const IfBody& ifBody)
@@ -902,9 +903,36 @@ vfloat log(const vfloat& v)
 
 vfloat pow(const vfloat& a, const vfloat& b)
 {
-    // doesn't work for negative base.
-    // fall back to system library if that is the case?
-    return exp(b * log(a));
+    // log256_ps(x) with x <= 0 returns nan
+    // so handle the case of negative bases by fallback to stdlib
+    __m256 fallback = _mm256_cmp_ps(a._value, b._value, _CMP_LE_OQ);
+    int fallbackmask = _mm256_movemask_ps(fallback);
+    if (fallbackmask != 0)
+    {
+        __declspec(align(32)) float aa[8];
+        __declspec(align(32)) float bb[8];
+        __declspec(align(32)) float cc[8];
+        _mm256_store_ps(aa, a._value);
+        _mm256_store_ps(bb, b._value);
+        for (int i = 0; i < 8; i++)
+        {
+            if (fallbackmask & (1 << i))
+                cc[i] = powf(aa[i], bb[i]);
+        }
+        if (fallbackmask == 0xFF)
+        {
+            return vfloat{ _mm256_load_ps(cc) };
+        }
+        else
+        {
+            vfloat nonfallback = exp(b * log(a));
+            return vfloat{ _mm256_blendv_ps(nonfallback._value, _mm256_load_ps(cc), fallback) };
+        }
+    }
+    else
+    {
+        return exp(b * log(a));
+    }
 }
 
 vfloat clamp(const vfloat& v, const vfloat& a, const vfloat& b)
@@ -1034,6 +1062,16 @@ vbool operator==(const lint& a, const lint& b)
     return vbool{ _mm256_cmpeq_epi32(a._value, b._value) };
 }
 
+vbool operator==(const lint& a, int b)
+{
+    return vint(a) == vint(b);
+}
+
+vbool operator==(int a, const lint& b)
+{
+    return vint(a) == vint(b);
+}
+
 vbool operator<(const lint& a, const lint& b)
 {
     return vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
@@ -1052,6 +1090,41 @@ vbool operator<=(const lint& a, const lint& b)
 vbool operator>=(const lint& a, const lint& b)
 {
     return !vbool{ _mm256_cmpgt_epi32(b._value, a._value) };
+}
+
+float extract(const vfloat& v, int instance)
+{
+    // surely there's a better way to extract
+    __declspec(align(32)) float values[8];
+    _mm256_store_ps(values, v._value);
+    return values[instance];
+}
+
+int extract(const vint& v, int instance)
+{
+    // surely there's a better way to extract
+    __declspec(align(32)) int values[8];
+    _mm256_store_si256((__m256i*)values, v._value);
+    return values[instance];
+}
+
+int extract(const lint& v, int instance)
+{
+    // surely there's a better way to extract
+    __declspec(align(32)) int values[8];
+    _mm256_store_si256((__m256i*)values, v._value);
+    return values[instance];
+}
+
+bool extract(const vbool& v, int instance)
+{
+    // might be interesting to also have a way to return ~0 for true
+    // cast vbool to vint then extract?
+    
+    // surely there's a better way to extract
+    __declspec(align(32)) int values[8];
+    _mm256_store_si256((__m256i*)values, v._value);
+    return values[instance] != 0;
 }
 
 template<class SPMDKernel, class... Args>
