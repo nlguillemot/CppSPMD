@@ -307,7 +307,7 @@ struct spmd_kernel
         { }
 
         explicit vint(const vfloat& other)
-            : _value(_mm256_cvtps_epi32(other._value))
+            : _value(_mm256_cvttps_epi32(other._value))
         { }
 
         explicit operator vbool() const
