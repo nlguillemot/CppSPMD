@@ -1,5 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
+#include <cmath>
 
 // which version to use
 //#define SCALAR
@@ -8,16 +10,15 @@
 
 // which test to run
 //#define SIMPLE
-//#define NOISE
+#define NOISE
 //#define MANDELBROT
-#define VOLUME
+//#define VOLUME
 
 // Enable hand-written optimizations
 #define SPMD_NOISE_OPTIMIZATION
 #define SPMD_MANDELBROT_OPTIMIZATION
 
 #ifdef SCALAR
-#include <cmath>
 
 #ifdef SIMPLE
 /*
@@ -580,7 +581,7 @@ raymarch(float density[], int nVoxels[3], const Ray &ray) {
 
 
 void
-volume_serial(float density[], int nVoxels[3], const float raster2camera[4][4],
+volume(float density[], int nVoxels[3], const float raster2camera[4][4],
               const float camera2world[4][4], 
               int width, int height, float image[]) {
     int offset = 0;
@@ -901,38 +902,6 @@ struct mandelbrot : spmd_kernel
 #endif // MANDELBROT
 
 #ifdef VOLUME
-// Just enough of a float3 class to do what we need in this file.
-struct vfloat3
-{
-    vfloat x;
-    vfloat y;
-    vfloat z;
-
-    vfloat3() = default;
-
-    vfloat3(const vfloat& xx, const vfloat& yy, const vfloat& zz)
-        : x(xx), y(yy), z(zz)
-    { }
-
-    vfloat3 operator*(const vfloat& f) const {
-        return vfloat3(x * f, y * f, z * f); 
-    }
-    vfloat3 operator-(const vfloat3& f2) const {
-        return vfloat3(x - f2.x, y - f2.y, z - f2.z);
-    }
-    vfloat3 operator*(const vfloat3& f2) const {
-        return vfloat3(x * f2.x, y * f2.y, z * f2.z);
-    }
-    vfloat3 operator+(const vfloat3& f2) const {
-        return vfloat3(x + f2.x, y + f2.y, z + f2.z);
-    }
-    vfloat3 operator/(const vfloat3& f2) const {
-        return vfloat3(x / f2.x, y / f2.y, z / f2.z);
-    }
-    const vfloat& operator[](int i) const { return (&x)[i]; }
-    vfloat& operator[](int i) { return (&x)[i]; }
-};
-
 #ifdef _MSC_VER
 __declspec(align(16))
 #endif
@@ -942,13 +911,8 @@ struct float3 {
         : x(xx), y(yy), z(zz)
     { }
 
-    operator vfloat3() const
-    {
-        return vfloat3(x, y, z);
-    }
-
     float3 operator*(float f) const {
-        return float3(x*f, y*f, z*f); 
+        return float3(x*f, y*f, z*f);
     }
     float3 operator-(const float3 &f2) const {
         return float3(x - f2.x, y - f2.y, z - f2.z);
@@ -972,6 +936,42 @@ struct float3 {
 __attribute__((aligned(16)))
 #endif
 ;
+
+// Just enough of a float3 class to do what we need in this file.
+struct vfloat3
+{
+    vfloat x;
+    vfloat y;
+    vfloat z;
+
+    vfloat3() = default;
+
+    vfloat3(const vfloat& xx, const vfloat& yy, const vfloat& zz)
+        : x(xx), y(yy), z(zz)
+    { }
+
+    vfloat3(const float3& f)
+        : x(f.x), y(f.y), z(f.z)
+    { }
+
+    vfloat3 operator*(const vfloat& f) const {
+        return vfloat3(x * f, y * f, z * f); 
+    }
+    vfloat3 operator-(const vfloat3& f2) const {
+        return vfloat3(x - f2.x, y - f2.y, z - f2.z);
+    }
+    vfloat3 operator*(const vfloat3& f2) const {
+        return vfloat3(x * f2.x, y * f2.y, z * f2.z);
+    }
+    vfloat3 operator+(const vfloat3& f2) const {
+        return vfloat3(x + f2.x, y + f2.y, z + f2.z);
+    }
+    vfloat3 operator/(const vfloat3& f2) const {
+        return vfloat3(x / f2.x, y / f2.y, z / f2.z);
+    }
+    const vfloat& operator[](int i) const { return (&x)[i]; }
+    vfloat& operator[](int i) { return (&x)[i]; }
+};
 
 template<class T>
 struct vfloat3_mixin : T
@@ -1175,7 +1175,7 @@ struct distanceSquared : spmd_kernel
 {
     vfloat _call(const vfloat3& a, const vfloat3& b) {
         vfloat3 d = a - b;
-        return d.x*d.x + d.y*d.y + d.z*d.z;
+        return d.x * d.x + d.y * d.y + d.z * d.z;
     }
 };
 
@@ -1327,6 +1327,26 @@ struct volume : spmd_kernel
 
 #endif // ISPC
 
+extern "C" int __stdcall QueryPerformanceCounter(uint64_t* lpPerformanceCount);
+extern "C" int __stdcall QueryPerformanceFrequency(uint64_t* lpFrequency);
+
+uint64_t g_start_time;
+
+void start_timer()
+{
+    QueryPerformanceCounter(&g_start_time);
+}
+
+void stop_timer(int num_runs)
+{
+    uint64_t end_time;
+    uint64_t freq;
+    QueryPerformanceCounter(&end_time);
+    QueryPerformanceFrequency(&freq);
+    double sec = double(end_time - g_start_time) / freq;
+    printf("%d runs in %.3lf seconds, %.3lf seconds per run\n", num_runs, sec, sec / num_runs);
+}
+
 #ifdef SIMPLE
 int main()
 {
@@ -1380,7 +1400,9 @@ int main()
 
     float *buf = new float[width*height];
 
-    int num_runs = 1;
+    int num_runs = 100;
+
+    start_timer();
 
     for (int i = 0; i < num_runs; i++)
     {
@@ -1396,6 +1418,8 @@ int main()
         ispc::noise(x0, y0, x1, y1, width, height, buf);
 #endif // ISPC
     }
+
+    stop_timer(num_runs);
 
     writePPM(buf, width, height, "noise.ppm");
 }
@@ -1434,6 +1458,8 @@ int main()
 
     int num_runs = 1;
 
+    start_timer();
+
     for (int i = 0; i < num_runs; i++)
     {
 #ifdef SCALAR
@@ -1448,6 +1474,8 @@ int main()
         ispc::mandelbrot(x0, y0, x1, y1, width, height, maxIterations, buf);
 #endif // ISPC
     }
+
+    stop_timer(num_runs);
 
     writePPM(buf, width, height, "mandelbrot.ppm");
 }
@@ -1546,22 +1574,31 @@ int main(int argc, char *argv[]) {
     float *image = new float[width*height];
 
     int n[3];
-    float *density = loadVolume("volume_assets/density_lowres.vol", n);
+    float *density = loadVolume("volume_assets/density_highres.vol", n);
 
+    int num_runs = 10;
+
+    start_timer();
+
+    for (int i = 0; i < num_runs; i++)
+    {
 #ifdef SCALAR
-    volume(density, n, raster2camera, camera2world,
-           width, height, image);
+        volume(density, n, raster2camera, camera2world,
+               width, height, image);
 #endif // SCALAR
 
 #ifdef CPPSPMD
-    spmd_call<volume>(density, n, raster2camera, camera2world,
-                      width, height, image);
+        spmd_call<volume>(density, n, raster2camera, camera2world,
+                          width, height, image);
 #endif // CPPSPMD
 
 #ifdef ISPC
-    ispc::volume(density, n, raster2camera, camera2world,
-                 width, height, image);
+        ispc::volume(density, n, raster2camera, camera2world,
+                     width, height, image);
 #endif // ISPC
+    }
+
+    stop_timer(num_runs);
 
     writePPM(image, width, height, "volume.ppm");
 }
