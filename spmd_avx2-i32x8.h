@@ -203,7 +203,7 @@ struct spmd_kernel
     // gather
     vfloat load(const vfloat_vref& src)
     {
-        return vfloat{ _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src._value, src._vindex, _mm256_castsi256_ps(exec._mask), 4) };
+        return vfloat{ _mm256_mask_i32gather_ps(_mm256_undefined_ps(), src._value, src._vindex, _mm256_castsi256_ps(exec._mask), 4) };
     }
 
     // reference to a vint stored linearly in memory
@@ -366,7 +366,7 @@ struct spmd_kernel
     // gather
     vint load(const vint_vref& src)
     {
-        return vint{ _mm256_mask_i32gather_epi32(_mm256_setzero_si256(), src._value, src._vindex, exec._mask, 4) };
+        return vint{ _mm256_mask_i32gather_epi32(_mm256_undefined_si256(), src._value, src._vindex, exec._mask, 4) };
     }
 
     struct lint
