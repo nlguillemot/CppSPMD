@@ -20,44 +20,52 @@ set_property(CACHE CPPSPMD_BUILD_MODE PROPERTY STRINGS CPPSPMD SCALAR ISPC)
 
 add_definitions(-D${CPPSPMD_BUILD_MODE})
 
-include_directories(common)
+include_directories(
+  common
+  ${CMAKE_BINARY_DIR}
+)
 
 # Simple
-add_executable(simple
+cppspmd_add_executable(simple
   common/avx_mathfun_tweaked.h
   common/common.h
   common/spmd_avx2-i32x8.h
   simple.cpp
+  simple.ispc
 )
 
 # Noise
-add_executable(noise
+cppspmd_add_executable(noise
   common/avx_mathfun_tweaked.h
   common/common.h
   common/spmd_avx2-i32x8.h
   noise.cpp
+  noise.ispc
 )
 
 # Mandelbrot
-add_executable(mandelbrot
+cppspmd_add_executable(mandelbrot
   common/avx_mathfun_tweaked.h
   common/common.h
   common/spmd_avx2-i32x8.h
   mandelbrot.cpp
+  mandelbrot.ispc
 )
 
 # Volume
-add_executable(volume
+cppspmd_add_executable(volume
   common/avx_mathfun_tweaked.h
   common/common.h
   common/spmd_avx2-i32x8.h
   volume.cpp
+  volume.ispc
 )
 
 # Options
-add_executable(options
+cppspmd_add_executable(options
   common/avx_mathfun_tweaked.h
   common/common.h
   common/spmd_avx2-i32x8.h
   options.cpp
+  options.ispc
 )

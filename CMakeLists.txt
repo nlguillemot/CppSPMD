@@ -35,6 +35,8 @@ endif()
 set(LIBRARY_OUTPUT_PATH    ${CMAKE_BINARY_DIR})
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 
+include(ispc)
+
 # Make CXX compiler visible in basic-mode GUIs
 mark_as_advanced(CLEAR CMAKE_CXX_COMPILER)
 

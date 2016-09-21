@@ -205,7 +205,7 @@ int main(int argc, char *argv[]) {
         v[i] = 5;    // volatility
     }
 
-    int num_runs = 100;
+    int num_runs = 10;
 
     start_timer();
 
@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
     }
     fclose(binomial_csv);
 
-    num_runs = 1000;
+    num_runs = 10;
 
     start_timer();
 
