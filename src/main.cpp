@@ -4,15 +4,17 @@
 #include <cstdint>
 #include <cmath>
 
+#include "spmd_avx2-i32x8.h"
+
 // which version to use
 //#define SCALAR
 #define CPPSPMD
 //#define ISPC
 
 // which test to run
-#define SIMPLE
+//#define SIMPLE
 //#define NOISE
-//#define MANDELBROT
+#define MANDELBROT
 //#define VOLUME
 //#define OPTIONS
 
@@ -701,7 +703,6 @@ binomial_put(float Sa[], float Xa[], float Ta[],
 #endif // SCALAR
 
 #ifdef CPPSPMD
-#include "spmd_avx2-i32x8.h"
 
 #ifdef SIMPLE
 struct simple : spmd_kernel
@@ -1520,38 +1521,46 @@ struct binomial_put : spmd_kernel
 # define __stdcall
 #endif
 
+#if 0
 extern "C" int __stdcall QueryPerformanceCounter(uint64_t* lpPerformanceCount);
 extern "C" int __stdcall QueryPerformanceFrequency(uint64_t* lpFrequency);
 
 uint64_t g_start_time;
 uint64_t g_total_time;
+#endif
 
 void start_timer()
 {
+#if 0
     QueryPerformanceCounter(&g_start_time);
     g_total_time = 0;
+#endif
 }
 
 void end_run()
 {
+#if 0
     uint64_t end_time;
     QueryPerformanceCounter(&end_time);
     g_total_time += end_time - g_start_time;
     QueryPerformanceCounter(&g_start_time);
+#endif
 }
 
 void stop_timer(int num_runs)
 {
+#if 0
     uint64_t freq;
     QueryPerformanceFrequency(&freq);
     double sec = double(g_total_time) / freq;
     printf("%d runs in %.3lf seconds, %.3lf seconds per run\n", num_runs, sec, sec / num_runs);
+#endif
 }
 
 #ifdef SIMPLE
 int main()
 {
-    __declspec(align(32)) float vin[16], vout[16];
+    ALIGN(32) float vin[16], vout[16];
     for (int i = 0; i < 16; ++i)
         vin[i] = (float)i;
 
@@ -1659,7 +1668,7 @@ int main()
     int maxIterations = 256;
     int *buf = new int[width*height];
 
-    int num_runs = 100;
+    int num_runs = 10;
 
     start_timer();
 

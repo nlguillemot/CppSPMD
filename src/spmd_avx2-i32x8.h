@@ -124,7 +124,15 @@ struct spmd_kernel
 
     vfloat& store(vfloat& dst, const vfloat& src)
     {
-        dst._value = _mm256_blendv_ps(dst._value, src._value, _mm256_castsi256_ps(exec._mask));
+        dst._value = _mm256_blendv_ps(dst._value, src._value,
+                                      _mm256_castsi256_ps(exec._mask));
+        return dst;
+    }
+
+    vfloat& store(vfloat&& dst, const vfloat& src)
+    {
+        dst._value = _mm256_blendv_ps(dst._value, src._value,
+                                      _mm256_castsi256_ps(exec._mask));
         return dst;
     }
 
@@ -140,6 +148,22 @@ struct spmd_kernel
 
     // scatter
     vfloat_lref& store(vfloat_lref& dst, const vfloat& src)
+    {
+        int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
+        if (mask == 0b11111111)
+        {
+            // "all on" optimization: vector store
+            _mm256_storeu_ps(dst._value, src._value);
+        }
+        else
+        {
+            // masked store
+            _mm256_maskstore_ps(dst._value, exec._mask, src._value);
+        }
+        return dst;
+    }
+
+    vfloat_lref& store(vfloat_lref&& dst, const vfloat& src)
     {
         int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
         if (mask == 0b11111111)
@@ -188,7 +212,10 @@ struct spmd_kernel
     // gather
     vfloat load(const vfloat_vref& src)
     {
-        return vfloat{ _mm256_mask_i32gather_ps(_mm256_undefined_ps(), src._value, src._vindex, _mm256_castsi256_ps(exec._mask), 4) };
+        return vfloat{ _mm256_mask_i32gather_ps(_mm256_undefined_ps(),
+                                                src._value, src._vindex,
+                                                _mm256_castsi256_ps(exec._mask),
+                                                4) };
     }
 
     // reference to a vint stored linearly in memory
