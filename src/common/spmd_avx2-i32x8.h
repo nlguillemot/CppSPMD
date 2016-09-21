@@ -209,6 +209,8 @@ struct spmd_kernel
     // scatter
     vfloat_vref& store(vfloat_vref& dst, const vfloat& src);
 
+    vfloat_vref& store(vfloat_vref&& dst, const vfloat& src);
+
     // gather
     vfloat load(const vfloat_vref& src)
     {
@@ -1081,6 +1083,23 @@ inline void spmd_kernel::_init(const spmd_kernel::exec_t &kernel_exec)
 }
 
 inline vfloat_vref &spmd_kernel::store(vfloat_vref &dst, const vfloat &src)
+{
+  ALIGN(32) int vindex[8];
+  _mm256_store_si256((__m256i*)vindex, dst._vindex);
+
+  ALIGN(32) float stored[8];
+  _mm256_store_ps(stored, src._value);
+
+  int mask = _mm256_movemask_ps(_mm256_castsi256_ps(exec._mask));
+  for (int i = 0; i < 8; i++)
+  {
+    if (mask & (1 << i))
+      dst._value[vindex[i]] = stored[i];
+  }
+  return dst;
+}
+
+inline vfloat_vref &spmd_kernel::store(vfloat_vref &&dst, const vfloat &src)
 {
   ALIGN(32) int vindex[8];
   _mm256_store_si256((__m256i*)vindex, dst._vindex);

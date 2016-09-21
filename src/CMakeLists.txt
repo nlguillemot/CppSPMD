@@ -14,24 +14,50 @@
 ## limitations under the License.                                           ##
 ## ======================================================================== ##
 
-set(TARGET_NAME "cppspmd")
-
 ## Figure out which mode to build ##
 set(CPPSPMD_BUILD_MODE "CPPSPMD" CACHE STRING "What mode to build the code in?")
 set_property(CACHE CPPSPMD_BUILD_MODE PROPERTY STRINGS CPPSPMD SCALAR ISPC)
 
 add_definitions(-D${CPPSPMD_BUILD_MODE})
 
-## Figure out which test to run ##
-set(CPPSPMD_BUILD_TEST "SIMPLE" CACHE STRING "Which test do you want built?")
-set_property(CACHE CPPSPMD_BUILD_MODE PROPERTY STRINGS
-             SIMPLE NOISE MANDELBROT VOLUME OPTIONS)
+include_directories(common)
 
-add_definitions(-D${CPPSPMD_BUILD_TEST})
-
-add_executable(${TARGET_NAME}
-  avx_mathfun_tweaked.h
-  spmd_avx2-i32x8.h
-  main.cpp
+# Simple
+add_executable(simple
+  common/avx_mathfun_tweaked.h
+  common/common.h
+  common/spmd_avx2-i32x8.h
+  simple.cpp
 )
 
+# Noise
+add_executable(noise
+  common/avx_mathfun_tweaked.h
+  common/common.h
+  common/spmd_avx2-i32x8.h
+  noise.cpp
+)
+
+# Mandelbrot
+add_executable(mandelbrot
+  common/avx_mathfun_tweaked.h
+  common/common.h
+  common/spmd_avx2-i32x8.h
+  mandelbrot.cpp
+)
+
+# Volume
+add_executable(volume
+  common/avx_mathfun_tweaked.h
+  common/common.h
+  common/spmd_avx2-i32x8.h
+  volume.cpp
+)
+
+# Options
+add_executable(options
+  common/avx_mathfun_tweaked.h
+  common/common.h
+  common/spmd_avx2-i32x8.h
+  options.cpp
+)
