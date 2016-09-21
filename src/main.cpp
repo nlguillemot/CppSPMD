@@ -6,18 +6,6 @@
 
 #include "spmd_avx2-i32x8.h"
 
-// which version to use
-//#define SCALAR
-#define CPPSPMD
-//#define ISPC
-
-// which test to run
-//#define SIMPLE
-//#define NOISE
-#define MANDELBROT
-//#define VOLUME
-//#define OPTIONS
-
 // Enable hand-written optimizations
 #define SPMD_NOISE_OPTIMIZATION
 #define SPMD_MANDELBROT_OPTIMIZATION

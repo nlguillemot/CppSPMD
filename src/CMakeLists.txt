@@ -16,6 +16,19 @@
 
 set(TARGET_NAME "cppspmd")
 
+## Figure out which mode to build ##
+set(CPPSPMD_BUILD_MODE "CPPSPMD" CACHE STRING "What mode to build the code in?")
+set_property(CACHE CPPSPMD_BUILD_MODE PROPERTY STRINGS CPPSPMD SCALAR ISPC)
+
+add_definitions(-D${CPPSPMD_BUILD_MODE})
+
+## Figure out which test to run ##
+set(CPPSPMD_BUILD_TEST "SIMPLE" CACHE STRING "Which test do you want built?")
+set_property(CACHE CPPSPMD_BUILD_MODE PROPERTY STRINGS
+             SIMPLE NOISE MANDELBROT VOLUME OPTIONS)
+
+add_definitions(-D${CPPSPMD_BUILD_TEST})
+
 add_executable(${TARGET_NAME}
   avx_mathfun_tweaked.h
   spmd_avx2-i32x8.h

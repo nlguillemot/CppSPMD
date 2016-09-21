@@ -35,19 +35,11 @@ endif()
 set(LIBRARY_OUTPUT_PATH    ${CMAKE_BINARY_DIR})
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 
-##############################################################
-# CMake configuration and macro files
-##############################################################
-
 include(cppspmd)
 
 configure_compiler()
 configure_tasking_system()
 configure_isa_flags()
-
-##############################################################
-# Build CppSPMD
-##############################################################
 
 add_subdirectory(src)
 
