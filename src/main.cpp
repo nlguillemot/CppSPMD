@@ -10,10 +10,10 @@
 //#define ISPC
 
 // which test to run
-//#define SIMPLE
+#define SIMPLE
 //#define NOISE
 //#define MANDELBROT
-#define VOLUME
+//#define VOLUME
 //#define OPTIONS
 
 // Enable hand-written optimizations
@@ -47,13 +47,13 @@
    PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
    LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 void simple(float vin[], float vout[], int count) {
     for (int index = 0; index < count; index++) {
         float v = vin[index];
-        
+
         if (v < 3.0f)
             v = v * v;
         else
@@ -89,7 +89,7 @@ void simple(float vin[], float vout[], int count) {
    PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
    LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #define NOISE_PERM_SIZE 256
@@ -98,34 +98,34 @@ static int NoisePerm[2 * NOISE_PERM_SIZE] = {
     151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140,
     36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148, 247, 120,
     234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32, 57, 177, 33,
-    88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168,  68, 175, 74, 165, 71, 
-    134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 
+    88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168,  68, 175, 74, 165, 71,
+    134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133,
     230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54, 65, 25, 63, 161,
-    1, 216, 80, 73, 209, 76, 132, 187, 208,  89, 18, 169, 200, 196, 135, 130, 
+    1, 216, 80, 73, 209, 76, 132, 187, 208,  89, 18, 169, 200, 196, 135, 130,
     116, 188, 159, 86, 164, 100, 109, 198, 173, 186,  3, 64, 52, 217, 226, 250,
-    124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59, 227, 
+    124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59, 227,
     47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213, 119, 248, 152,  2, 44,
-    154, 163, 70, 221, 153, 101, 155, 167,  43, 172, 9, 129, 22, 39, 253,  19, 
+    154, 163, 70, 221, 153, 101, 155, 167,  43, 172, 9, 129, 22, 39, 253,  19,
     98, 108, 110, 79, 113, 224, 232, 178, 185,  112, 104, 218, 246, 97, 228, 251,
     34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249,
     14, 239, 107, 49, 192, 214,  31, 181, 199, 106, 157, 184, 84, 204, 176, 115,
-    121, 50, 45, 127,  4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 
+    121, 50, 45, 127,  4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72,
     243, 141, 128, 195, 78, 66, 215, 61, 156, 180, 151, 160, 137, 91, 90, 15,
     131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99,
     37, 240, 21, 10, 23, 190, 6, 148, 247, 120, 234, 75, 0, 26, 197, 62, 94, 252,
-    219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 
+    219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125,
     136, 171, 168,  68, 175, 74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158,
     231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245,
     40, 244, 102, 143, 54,  65, 25, 63, 161,  1, 216, 80, 73, 209, 76, 132, 187,
-    208,  89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 
+    208,  89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109,
     198, 173, 186,  3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118,
     126, 255, 82, 85, 212, 207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42,
-    223, 183, 170, 213, 119, 248, 152,  2, 44, 154, 163, 70, 221, 153, 101, 155, 
+    223, 183, 170, 213, 119, 248, 152,  2, 44, 154, 163, 70, 221, 153, 101, 155,
     167,  43, 172, 9, 129, 22, 39, 253,  19, 98, 108, 110, 79, 113, 224, 232,
     178, 185,  112, 104, 218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144,
     12, 191, 179, 162, 241,  81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214,
     31, 181, 199, 106, 157, 184,  84, 204, 176, 115, 121, 50, 45, 127,  4, 150,
-    254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 
+    254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78,
     66, 215, 61, 156, 180
 };
 
@@ -253,7 +253,7 @@ void noise(float x0, float y0, float x1, float y1,
    PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
    LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 
@@ -323,7 +323,7 @@ void mandelbrot(float x0, float y0, float x1, float y1,
    PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
    LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <assert.h>
@@ -336,23 +336,23 @@ struct float3 {
     float3(float xx, float yy, float zz) { x = xx; y = yy; z = zz; }
 
     float3 operator*(float f) const { return float3(x*f, y*f, z*f); }
-    float3 operator-(const float3 &f2) const { 
-        return float3(x-f2.x, y-f2.y, z-f2.z); 
+    float3 operator-(const float3 &f2) const {
+        return float3(x-f2.x, y-f2.y, z-f2.z);
     }
-    float3 operator*(const float3 &f2) const { 
-        return float3(x*f2.x, y*f2.y, z*f2.z); 
+    float3 operator*(const float3 &f2) const {
+        return float3(x*f2.x, y*f2.y, z*f2.z);
     }
-    float3 operator+(const float3 &f2) const { 
-        return float3(x+f2.x, y+f2.y, z+f2.z); 
+    float3 operator+(const float3 &f2) const {
+        return float3(x+f2.x, y+f2.y, z+f2.z);
     }
-    float3 operator/(const float3 &f2) const { 
-        return float3(x/f2.x, y/f2.y, z/f2.z); 
+    float3 operator/(const float3 &f2) const {
+        return float3(x/f2.x, y/f2.y, z/f2.z);
     }
     float operator[](int i) const { return (&x)[i]; }
     float &operator[](int i) { return (&x)[i]; }
 
     float x, y, z;
-    float pad;  // match padding/alignment of ispc version 
+    float pad;  // match padding/alignment of ispc version
 }
 #ifndef _MSC_VER
 __attribute__ ((aligned(16)))
@@ -423,7 +423,7 @@ IntersectP(const Ray &ray, float3 pMin, float3 pMax, float *hit0, float *hit1) {
     }
     t0 = std::max(tNear.z, t0);
     t1 = std::min(tFar.z, t1);
-    
+
     if (t0 <= t1) {
         *hit0 = t0;
         *hit1 = t1;
@@ -459,9 +459,9 @@ static inline float3 Offset(float3 p, float3 pMin, float3 pMax) {
 }
 
 
-static inline float Density(float3 Pobj, float3 pMin, float3 pMax, 
+static inline float Density(float3 Pobj, float3 pMin, float3 pMax,
                             float density[], int nVoxels[3]) {
-    if (!Inside(Pobj, pMin, pMax)) 
+    if (!Inside(Pobj, pMin, pMax))
         return 0;
     // Compute voxel coordinates and offsets for _Pobj_
     float3 vox = Offset(Pobj, pMin, pMax);
@@ -472,13 +472,13 @@ static inline float Density(float3 Pobj, float3 pMin, float3 pMax,
     float dx = vox.x - vx, dy = vox.y - vy, dz = vox.z - vz;
 
     // Trilinearly interpolate density values to compute local density
-    float d00 = Lerp(dx, D(vx, vy, vz, nVoxels, density),     
+    float d00 = Lerp(dx, D(vx, vy, vz, nVoxels, density),
                          D(vx+1, vy, vz, nVoxels, density));
-    float d10 = Lerp(dx, D(vx, vy+1, vz, nVoxels, density),   
+    float d10 = Lerp(dx, D(vx, vy+1, vz, nVoxels, density),
                          D(vx+1, vy+1, vz, nVoxels, density));
-    float d01 = Lerp(dx, D(vx, vy, vz+1, nVoxels, density),   
+    float d01 = Lerp(dx, D(vx, vy, vz+1, nVoxels, density),
                          D(vx+1, vy, vz+1, nVoxels, density));
-    float d11 = Lerp(dx, D(vx, vy+1, vz+1, nVoxels, density), 
+    float d11 = Lerp(dx, D(vx, vy+1, vz+1, nVoxels, density),
                          D(vx+1, vy+1, vz+1, nVoxels, density));
     float d0 = Lerp(dy, d00, d10);
     float d1 = Lerp(dy, d01, d11);
@@ -528,7 +528,7 @@ distanceSquared(float3 a, float3 b) {
 }
 
 
-static float 
+static float
 raymarch(float density[], int nVoxels[3], const Ray &ray) {
     float rayT0, rayT1;
     float3 pMin(.3f, -.2f, .3f), pMax(1.8f, 2.3f, 1.8f);
@@ -565,7 +565,7 @@ raymarch(float density[], int nVoxels[3], const Ray &ray) {
             break;
 
         // direct lighting
-        float Li = lightIntensity / distanceSquared(lightPos, pos) * 
+        float Li = lightIntensity / distanceSquared(lightPos, pos) *
             transmittance(lightPos, pos, pMin, pMax, sigma_a + sigma_s,
                           density, nVoxels);
         L += stepDist * atten * d * sigma_s * (Li + Le);
@@ -584,7 +584,7 @@ raymarch(float density[], int nVoxels[3], const Ray &ray) {
 
 void
 volume(float density[], int nVoxels[3], const float raster2camera[4][4],
-              const float camera2world[4][4], 
+              const float camera2world[4][4],
               int width, int height, float image[]) {
     int offset = 0;
     for (int y = 0; y < height; ++y) {
@@ -622,7 +622,7 @@ volume(float density[], int nVoxels[3], const float raster2camera[4][4],
    PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
    LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
    NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.  
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #define BINOMIAL_NUM 64
@@ -650,8 +650,8 @@ CND(float X) {
 
 
 void
-black_scholes(float Sa[], float Xa[], float Ta[], 
-              float ra[], float va[], 
+black_scholes(float Sa[], float Xa[], float Ta[],
+              float ra[], float va[],
               float result[], int count) {
     for (int i = 0; i < count; ++i) {
         float S = Sa[i], X = Xa[i];
@@ -667,8 +667,8 @@ black_scholes(float Sa[], float Xa[], float Ta[],
 
 
 void
-binomial_put(float Sa[], float Xa[], float Ta[], 
-             float ra[], float va[], 
+binomial_put(float Sa[], float Xa[], float Ta[],
+             float ra[], float va[],
              float result[], int count) {
     float V[BINOMIAL_NUM];
 
@@ -729,34 +729,34 @@ static int NoisePerm[2 * NOISE_PERM_SIZE] = {
     151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140,
     36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148, 247, 120,
     234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32, 57, 177, 33,
-    88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168,  68, 175, 74, 165, 71, 
-    134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 
+    88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168,  68, 175, 74, 165, 71,
+    134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133,
     230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54, 65, 25, 63, 161,
-    1, 216, 80, 73, 209, 76, 132, 187, 208,  89, 18, 169, 200, 196, 135, 130, 
+    1, 216, 80, 73, 209, 76, 132, 187, 208,  89, 18, 169, 200, 196, 135, 130,
     116, 188, 159, 86, 164, 100, 109, 198, 173, 186,  3, 64, 52, 217, 226, 250,
-    124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59, 227, 
+    124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59, 227,
     47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213, 119, 248, 152,  2, 44,
-    154, 163, 70, 221, 153, 101, 155, 167,  43, 172, 9, 129, 22, 39, 253,  19, 
+    154, 163, 70, 221, 153, 101, 155, 167,  43, 172, 9, 129, 22, 39, 253,  19,
     98, 108, 110, 79, 113, 224, 232, 178, 185,  112, 104, 218, 246, 97, 228, 251,
     34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249,
     14, 239, 107, 49, 192, 214,  31, 181, 199, 106, 157, 184, 84, 204, 176, 115,
-    121, 50, 45, 127,  4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 
+    121, 50, 45, 127,  4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72,
     243, 141, 128, 195, 78, 66, 215, 61, 156, 180, 151, 160, 137, 91, 90, 15,
     131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99,
     37, 240, 21, 10, 23, 190, 6, 148, 247, 120, 234, 75, 0, 26, 197, 62, 94, 252,
-    219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 
+    219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125,
     136, 171, 168,  68, 175, 74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158,
     231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245,
     40, 244, 102, 143, 54,  65, 25, 63, 161,  1, 216, 80, 73, 209, 76, 132, 187,
-    208,  89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 
+    208,  89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109,
     198, 173, 186,  3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118,
     126, 255, 82, 85, 212, 207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42,
-    223, 183, 170, 213, 119, 248, 152,  2, 44, 154, 163, 70, 221, 153, 101, 155, 
+    223, 183, 170, 213, 119, 248, 152,  2, 44, 154, 163, 70, 221, 153, 101, 155,
     167,  43, 172, 9, 129, 22, 39, 253,  19, 98, 108, 110, 79, 113, 224, 232,
     178, 185,  112, 104, 218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144,
     12, 191, 179, 162, 241,  81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214,
     31, 181, 199, 106, 157, 184,  84, 204, 176, 115, 121, 50, 45, 127,  4, 150,
-    254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 
+    254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78,
     66, 215, 61, 156, 180
 };
 
@@ -898,8 +898,8 @@ struct Turbulence : spmd_kernel
 
 struct noise : spmd_kernel
 {
-    void _call(float x0, float y0, float x1, 
-               float y1, int width, int height, 
+    void _call(float x0, float y0, float x1,
+               float y1, int width, int height,
                float output[])
     {
         float dx = (x1 - x0) / width;
@@ -1033,7 +1033,7 @@ struct float3 {
     float& operator[](int i) { return (&x)[i]; }
 
     float x, y, z;
-    float pad;  // match padding/alignment of ispc version 
+    float pad;  // match padding/alignment of ispc version
 }
 #ifndef _MSC_VER
 __attribute__((aligned(16)))
@@ -1058,7 +1058,7 @@ struct vfloat3
     { }
 
     vfloat3 operator*(const vfloat& f) const {
-        return vfloat3(x * f, y * f, z * f); 
+        return vfloat3(x * f, y * f, z * f);
     }
     vfloat3 operator-(const vfloat3& f2) const {
         return vfloat3(x - f2.x, y - f2.y, z - f2.z);
@@ -1097,7 +1097,7 @@ struct vRay
 
 struct generateRay : spmd_kernel
 {
-    void _call(const float raster2camera[4][4], 
+    void _call(const float raster2camera[4][4],
                const float camera2world[4][4],
                const vfloat& x, const vfloat& y, vRay &ray) {
         // transform raster coordinate (x, y, 0) to camera space
@@ -1156,13 +1156,13 @@ struct IntersectP : spmd_kernel
         });
         store(t0, max(tNear.z, t0));
         store(t1, min(tFar.z, t1));
-    
+
         vbool result = t0 <= t1;
         spmd_if(result, [&] {
             store(hit0, t0);
             store(hit1, t1);
         });
-        
+
         return result;
     }
 };
@@ -1176,7 +1176,7 @@ struct Lerp : spmd_kernel
 
 struct D : spmd_kernel
 {
-    vfloat _call(const vint& x, const vint& y, const vint& z, int nVoxels[3], 
+    vfloat _call(const vint& x, const vint& y, const vint& z, int nVoxels[3],
                  float density[]) {
         vint xx = clamp(x, 0, nVoxels[0]-1);
         vint yy = clamp(y, 0, nVoxels[1]-1);
@@ -1195,9 +1195,9 @@ struct Offset : spmd_kernel
 
 struct Density : spmd_kernel
 {
-    vfloat _call(const vfloat3& Pobj, const vfloat3& pMin, const vfloat3& pMax, 
+    vfloat _call(const vfloat3& Pobj, const vfloat3& pMin, const vfloat3& pMax,
                  float density[], int nVoxels[3]) {
-        
+
         vfloat result;
         spmd_if(!spmd_call<Inside>(Pobj, pMin, pMax), [&] {
             store(result, 0);
@@ -1235,7 +1235,7 @@ struct Density : spmd_kernel
 struct transmittance : vfloat3_mixin<spmd_kernel>
 {
     vfloat _call(const float3& p0, const vfloat3& p1, const float3& pMin,
-                 const float3& pMax, float sigma_t, 
+                 const float3& pMax, float sigma_t,
                  float density[], int nVoxels[3]) {
         vfloat rayT0, rayT1;
         vRay ray{ p1, vfloat3(p0) - p1 };
@@ -1295,7 +1295,7 @@ struct raymarch : vfloat3_mixin<spmd_kernel>
             store(result, 0.0f);
             spmd_return();
         });
-        
+
         if (!any(exec))
             return result;
 
@@ -1331,7 +1331,7 @@ struct raymarch : vfloat3_mixin<spmd_kernel>
                 return;
 
             // direct lighting
-            vfloat Li = lightIntensity / spmd_call<distanceSquared>(lightPos, pos) * 
+            vfloat Li = lightIntensity / spmd_call<distanceSquared>(lightPos, pos) *
                 spmd_call<transmittance>(lightPos, pos, pMin, pMax, sigma_a + sigma_s,
                                          density, nVoxels);
             store(L, L + stepDist * atten * d * sigma_s * (Li + Le));
@@ -1353,16 +1353,16 @@ struct raymarch : vfloat3_mixin<spmd_kernel>
    Renders a tile of the image, covering [x0,x0) * [y0, y1), storing the
    result into the image[] array.
  */
-struct volume_tile : spmd_kernel
+struct volume_tile : public spmd_kernel
 {
     /* Utility routine used by both the task-based and the single-core entrypoints.
        Renders a tile of the image, covering [x0,x0) * [y0, y1), storing the
        result into the image[] array.
      */
     void _call(int x0, int y0, int x1,
-               int y1, float density[], int nVoxels[3], 
+               int y1, float density[], int nVoxels[3],
                const float raster2camera[4][4],
-               const float camera2world[4][4], 
+               const float camera2world[4][4],
                int width, int height, float image[]) {
         // Work on 4x4=16 pixel big tiles of the image.  This function thus
         // implicitly assumes that both (x1-x0) and (y1-y0) are evenly divisble
@@ -1384,12 +1384,14 @@ struct volume_tile : spmd_kernel
                     // Use viewing parameters to compute the corresponding ray
                     // for the pixel
                     vRay ray;
-                    spmd_call<generateRay>(raster2camera, camera2world, vfloat(xo), vfloat(yo), ray);
+                    spmd_call<generateRay>(raster2camera, camera2world,
+                                           vfloat(xo), vfloat(yo), ray);
 
                     // And raymarch through the volume to compute the pixel's
                     // value
                     vint offset = yo * width + xo;
-                    store(offset[image], spmd_call<raymarch>(density, nVoxels, ray));
+                    store(offset[image],
+                          spmd_call<raymarch>(density, nVoxels, ray));
                 });
             }
         }
@@ -1398,11 +1400,11 @@ struct volume_tile : spmd_kernel
 
 struct volume : spmd_kernel
 {
-    void _call(float density[], int nVoxels[3], 
+    void _call(float density[], int nVoxels[3],
                 const float raster2camera[4][4],
-                const float camera2world[4][4], 
+                const float camera2world[4][4],
                 int width, int height, float image[]) {
-        spmd_call<volume_tile>(0, 0, width, height, density, nVoxels, raster2camera, 
+        spmd_call<volume_tile>(0, 0, width, height, density, nVoxels, raster2camera,
                                camera2world, width, height,  image);
     }
 };
@@ -1425,7 +1427,7 @@ struct CND : spmd_kernel
 
         const float invSqrt2Pi = 0.39894228040f;
         vfloat w = (0.31938153f * k - 0.356563782f * k2 + 1.781477937f * k3 +
-                    -1.821255978f * k4 + 1.330274429f * k5) 
+                    -1.821255978f * k4 + 1.330274429f * k5)
             * invSqrt2Pi * exp(-L * L * .5f);
 
         spmd_if(X > 0.f, [&] {
@@ -1439,7 +1441,7 @@ struct CND : spmd_kernel
 struct black_scholes : spmd_kernel
 {
     void _call(float Sa[], float Xa[], float Ta[],
-               float ra[], float va[], 
+               float ra[], float va[],
                float result[], int count) {
         spmd_foreach(0, count, [&](const lint& i) {
             vfloat S = load(i[Sa]), X = load(i[Xa]), T = load(i[Ta]), r = load(i[ra]), v = load(i[va]);
@@ -1477,8 +1479,8 @@ struct do_binomial_put : spmd_kernel
 
 struct binomial_put : spmd_kernel
 {
-    void _call(float Sa[], float Xa[], float Ta[], 
-               float ra[], float va[], 
+    void _call(float Sa[], float Xa[], float Ta[],
+               float ra[], float va[],
                float result[], int count) {
         spmd_foreach (0, count, [&](const lint& i) {
             vfloat S = load(i[Sa]), X = load(i[Xa]), T = load(i[Ta]), r = load(i[ra]), v = load(i[va]);
@@ -1513,6 +1515,10 @@ struct binomial_put : spmd_kernel
 #endif // OPTIONS
 
 #endif // ISPC
+
+#if !defined(WIN32)
+# define __stdcall
+#endif
 
 extern "C" int __stdcall QueryPerformanceCounter(uint64_t* lpPerformanceCount);
 extern "C" int __stdcall QueryPerformanceFrequency(uint64_t* lpFrequency);
