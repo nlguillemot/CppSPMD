@@ -38,7 +38,6 @@ set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 include(cppspmd)
 
 configure_compiler()
-configure_tasking_system()
 configure_isa_flags()
 
 add_subdirectory(src)
