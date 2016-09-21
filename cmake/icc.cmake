@@ -17,7 +17,6 @@
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -static-intel -std=c++14 -Wall -Werror")
 SET(CMAKE_CXX_FLAGS_DEBUG          "-DDEBUG  -g")
 SET(CMAKE_CXX_FLAGS_RELEASE        "-DNDEBUG -O3")
-#SET(CMAKE_CXX_FLAGS_RELEASE        "-DNDEBUG    -O3 -no-ansi-alias -restrict -fp-model fast -fimf-precision=low -no-prec-div -no-prec-sqrt -fma -no-inline-max-total-size -inline-factor=200 ")
 SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-DNDEBUG -g -O3 -no-ansi-alias -restrict -fp-model fast -fimf-precision=low -no-prec-div -no-prec-sqrt  -fma  -no-inline-max-total-size -inline-factor=200")
 
 IF (APPLE)
@@ -26,3 +25,5 @@ IF (APPLE)
   SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++") # link against C++11 stdlib
 ENDIF()
 
+# Add AVX2 flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma")

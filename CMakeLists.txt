@@ -35,10 +35,20 @@ endif()
 set(LIBRARY_OUTPUT_PATH    ${CMAKE_BINARY_DIR})
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 
-include(cppspmd)
+# Make CXX compiler visible in basic-mode GUIs
+mark_as_advanced(CLEAR CMAKE_CXX_COMPILER)
 
-configure_compiler()
-configure_isa_flags()
+if (${CMAKE_CXX_COMPILER_ID} STREQUAL "Intel")
+  include(${PROJECT_SOURCE_DIR}/cmake/icc.cmake)
+elseif (${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
+  include(${PROJECT_SOURCE_DIR}/cmake/gcc.cmake)
+elseif (${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
+  include(${PROJECT_SOURCE_DIR}/cmake/clang.cmake)
+#elseif (${CMAKE_CXX_COMPILER_ID} STREQUAL "MSVC")
+#  include(${PROJECT_SOURCE_DIR}/cmake/msvc.cmake)
+else()
+  message(FATAL_ERROR "Unsupported compiler specified: '${CMAKE_CXX_COMPILER_ID}'")
+endIF()
 
 add_subdirectory(src)
 

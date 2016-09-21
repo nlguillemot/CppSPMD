@@ -24,3 +24,5 @@ IF (APPLE)
   SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++") # link against C++11 stdlib
 ENDIF()
 
+# Add AVX2 flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma")

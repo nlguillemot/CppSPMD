@@ -29,7 +29,3 @@ macro(CONFIGURE_COMPILER)
     message(FATAL_ERROR "Unsupported compiler specified: '${CMAKE_CXX_COMPILER_ID}'")
   endIF()
 endmacro()
-
-macro(CONFIGURE_ISA_FLAGS)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mfma")
-endmacro()
