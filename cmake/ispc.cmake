@@ -84,7 +84,7 @@ ENDMACRO ()
 
 MACRO (CPPSPMD_ISPC_COMPILE)
   SET(ISPC_ADDITIONAL_ARGS "")
-  SET(ISPC_TARGETS ${CPPSPMD_ISPC_TARGET_LIST})
+  SET(ISPC_TARGETS avx2-i32x8)
 
   SET(ISPC_TARGET_EXT ${CMAKE_CXX_OUTPUT_EXTENSION})
   STRING(REPLACE ";" "," ISPC_TARGET_ARGS "${ISPC_TARGETS}")
@@ -144,20 +144,8 @@ MACRO (CPPSPMD_ISPC_COMPILE)
 
     SET(results "${outdir}/${fname}.dev${ISPC_TARGET_EXT}")
 
-    LIST(LENGTH ISPC_TARGETS NUM_TARGETS)
-    IF (NUM_TARGETS EQUAL 1)
-      # workaround link issues to Embree ISPC exports:
-      # we add a 2nd target to force ISPC to add the ISA suffix during name
-      # mangling
-      SET(ISPC_TARGET_ARGS "${ISPC_TARGETS},sse2")
-      LIST(APPEND ISPC_TARGETS sse2)
-    ENDIF()
-    FOREACH(target ${ISPC_TARGETS})
-      SET(results ${results} "${outdir}/${fname}.dev_${target}${ISPC_TARGET_EXT}")
-    ENDFOREACH()
-
     ADD_CUSTOM_COMMAND(
-      OUTPUT ${results} ${ISPC_TARGET_DIR}/${fname}_ispc.h
+      OUTPUT ${results} ${ISPC_TARGET_DIR}/${fname}.ispc.h
       COMMAND ${CMAKE_COMMAND} -E make_directory ${outdir}
       COMMAND ${ISPC_EXECUTABLE}
       -I ${CMAKE_CURRENT_SOURCE_DIR}
@@ -165,7 +153,7 @@ MACRO (CPPSPMD_ISPC_COMPILE)
       --arch=x86-64
       --addressing=32
       ${ISPC_OPT_FLAGS}
-      --target=avx2-i32x8
+      --target=${ISPC_TARGETS}
       --woff
       --opt=fast-math
       ${ISPC_ADDITIONAL_ARGS}
